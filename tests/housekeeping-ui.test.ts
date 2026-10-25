@@ -10,8 +10,7 @@ import {
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { rgbColor, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { AGENT_COLORS } from "../src/prefs/config.ts";
-import { ConfigStore } from "../src/prefs/config.ts";
+import { AGENT_COLORS } from "../src/prefs/colors.ts";
 import {
   DEFAULT_MANAGER_SETTINGS,
   loadManagerSettings,
@@ -411,7 +410,6 @@ async function runSettings(
     ...options.settings,
   };
   await configureAgents(ctx, {
-    store: new ConfigStore({ cwd: root, agentDir: root, includeProject: false }),
     agentDir: root,
     settings: initial,
     apply: () => applied++,

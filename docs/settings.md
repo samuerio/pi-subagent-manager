@@ -25,8 +25,6 @@ All keys are optional. Defaults:
   "checklistIntegration": false,
   "housekeepingEnabled": false,
   "housekeepingModel": "",
-  "modelSelection": "pick-first-scoped",
-  "toolFiltering": "allowed",
   "maxLevels": 3,
   "maxConcurrent": 16,
   "maxThreads": 64
@@ -45,12 +43,11 @@ How much the main model is encouraged to delegate.
 
 | Option                    | What it does                                                                                                         | Use when                                                         |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `off`                     | Hides subagent tools; injects no guidance. Widget, notifications and import offer are hidden. `/agents` still works. | You want plain pi for a while, without uninstalling.             |
+| `off`                     | Hides subagent tools; injects no guidance. Widget and notifications are hidden. `/agents` still works. | You want plain pi for a while, without uninstalling.             |
 | `opportunistic` (default) | Tools on. Main model delegates only parallelizable or very large tasks; otherwise works directly.                    | Everyday use.                                                    |
 | `orchestration`           | Tools on. `/root` delegates **all** execution and only coordinates and synthesizes.                                  | Big multi-part tasks where you want the main context kept clean. |
 
 - Orchestration is a prompt policy, not a tool restriction. Workers don't inherit the root-only rule.
-- Agent import needs `opportunistic` (it uses the main thread's file tools).
 
 ## Status Widget (`widgetMode`)
 
@@ -67,9 +64,9 @@ Minimal mode groups starting agents with running agents and excludes the main co
 
 Experimental features are tagged **[labs]** in the selected setting's help. Row labels omit that prefix to leave room for provenance dots. **[labs] Nerd Font icons** is an on/off toggle, **off by default**. Enable it in `/agents` and save with **Ctrl+S**, or set `"nerdFontIcons": true` in your settings file. Configure a [Nerd Font](https://www.nerdfonts.com/) in your terminal first; unsupported fonts may show boxes or incorrect glyphs. The extension does not install or detect fonts.
 
-When enabled, an agent type’s optional `icon` appears before its readable name in the full widget, thread browsers, live watcher header, and type picker. Starting/running agents show the selected loader **before the original role icon**, never replacing it. Completed, paused, failed, and stopped agents show that loader family's corresponding static state icon before the role icon. Agents without a configured role icon still show their loader/state indicator. The one-line minimal widget uses the same family's indicators for aggregate status counts. Turning the setting off hides role icons without removing configured icons; portable loaders remain visible; RPC output keeps state indicators static. Saved settings apply immediately to newly rendered widgets and dialogs.
+When enabled, an agent’s optional `icon` appears before its readable name in the full widget, thread browsers, live watcher header, and type picker. Starting/running agents show the selected loader **before the original role icon**, never replacing it. Completed, paused, failed, and stopped agents show that loader family's corresponding static state icon before the role icon. Agents without a configured role icon still show their loader/state indicator. The one-line minimal widget uses the same family's indicators for aggregate status counts. Turning the setting off hides role icons without removing configured icons; portable loaders remain visible; RPC output keeps state indicators static. Saved settings apply immediately to newly rendered widgets and dialogs.
 
-All six bundled agents have [role-specific icons](default-agents.md#nerd-font-icons). Add or change an icon with **[labs] Icon** in `/agents types`, or the optional `icon` frontmatter field in [your own agent](custom-agents.md#icons-labs). Retained threads keep the icon from their saved agent definition.
+Each built-in agent has a [role-specific icon](default-agents.md#nerd-font-icons), defined next to its other fields in `src/agents/specs.ts`. Retained threads keep the icon from their saved definition.
 
 ## [labs] Loader style (`loaderStyle`)
 
@@ -177,41 +174,51 @@ Pick the model in the dialog's searchable picker. It lists **scoped models first
 
 **Privacy and cost.** The housekeeping model sees each agent's task and recent activity text, including command and path snippets, so choose a provider you are comfortable sending that to. Calls use extra tokens at that model's price. Reported usage (including failed, cancelled, or discarded answers) is recorded in the main session as native `usage` entries, contributing to Pi's session totals and the **Total** cost display, but not the **Subagents** cost total. Extensions such as pi-stats display the actual response model as `provider/model (subagent-manager)`. These accounting entries contain no task, prompt, tool arguments, or summary text and do not enter the model's conversation context.
 
-## Model Picking (`modelSelection`)
+## Model routing (`roles` in `modes.json`)
 
-Which model an agent gets when its session starts.
+Agents do not choose models. Each built-in agent names a role, and the active mode in `modes.json`
+(the same file the prompt-editor extension manages) pins that role:
 
-| Option                                                  | What it does                                                             | Use when                                                                                   |
-| ------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `pick-first-available` — **Pick First (available)**     | First entry in the type's `models` with configured credentials.          | You trust your per-agent lists and want them honored regardless of `/scoped-models`.       |
-| `pick-first-scoped` — **Pick First (scoped)** (default) | Same, but the model must also be in the main session's `/scoped-models`. | You use `/scoped-models` as an allowlist (cost, compliance) and want agents to respect it. |
-| `use-current` — **Use Current**                         | Ignores `models`; uses the main session's current model.                 | One model for everything, or quick testing.                                                |
+| Role        | Serves                    |
+| ----------- | ------------------------- |
+| `oracle`    | `oracle_spawn`            |
+| `subagents` | `task_spawn`, `finder_spawn`, `librarian_spawn` |
 
-- Types with no `models` inherit the parent's model in both Pick First modes.
-- Your list's order decides, not the scoped list's order.
-- No match → spawn fails clearly. An empty `/scoped-models` matches nothing.
-- `use-current` always uses the **main** session's model, even for nested or reopened agents. Thinking levels stay per-agent.
-- `modelSuggestions` never affects this.
-- Switching modes doesn't change already-open sessions.
-- Legacy `scopedModelFiltering: true` → `pick-first-scoped`; `false` → `pick-first-available`.
+```json
+{
+  "currentMode": "default",
+  "modes": {
+    "default": {
+      "roles": {
+        "oracle": { "provider": "anthropic", "modelId": "claude-sonnet-5", "thinkingLevel": "high" },
+        "subagents": { "provider": "deepseek", "modelId": "deepseek-flash", "thinkingLevel": "medium" }
+      }
+    }
+  }
+}
+```
 
-## Tool Filtering (`toolFiltering`)
+- A project `.pi/modes.json` overrides the global `<pi-agent-dir>/modes.json`.
+- A missing file, mode, role, or field is a hard error: the spawn fails with a message naming
+  `modes.json` and the missing piece. There is no fallback to the parent model or to the main session.
+- Thinking levels come from the pin too; a non-reasoning model clamps `thinkingLevel` to its
+  supported level.
+- Switching modes affects newly started and resumed agents. An already-running agent keeps the model
+  it started with, and steering never re-routes it.
 
-How the type's `tools.allow` / `tools.block` lists are applied.
+## Tool allowlists (`tools` in the spec)
 
-| Option                                             | What it does                                                         | Use when                                   |
-| -------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------ |
-| `allowed` — **Allowed (except blocked)** (default) | Only `allow` tools, minus `block`. Empty/missing `allow` = no tools. | Least privilege. Recommended.              |
-| `all-except-blocked` — **All except blocked**      | Ignores `allow`; everything except `block`.                          | Your definitions only list what to forbid. |
-| `all` — **All**                                    | Ignores both lists.                                                  | Trusted local experiments.                 |
+Every agent spec carries a complete tool allowlist; there is no block list and no filtering mode.
 
-- "All" includes child-local built-in and manager tools plus the main session's registered non-hidden tools. Exact-name allow/block lists apply to this inventory.
-- Inherited tools retain exposure and active status. Deferred/codemode tools are discoverable through child-local codemode when permitted; direct tools remain model-facing when active.
-- By default, built-in tools, manager controls, codemode and tool search remain child-local. External calls reuse main-session resources/context rather than loading fresh extensions or MCP connections. With [Enable subagent extensions](#labs-enable-subagent-extensions-subagentextensions), reloaded extension tools execute in the child instead. Bridged callable tools remain subject to the main session's tool policy; session-mutating external tools are not necessarily isolated to the child. Skills and project context files are not automatically loaded.
-- Other custom **model-only** tools fail closed: the SDK cannot bridge them while preserving root permission/result hooks. Run those in the main session.
-- UI/command-driven resumes after reopening the main session need a main-session `agent_*` tool call to establish the execution bridge; use `agent_steer` rather than the thread dialog.
-- Applies to newly started sessions (including retained ones reopened after reload). Already-open sessions keep their selected tools, and the main session's tool set is unchanged.
-- Non-default modes can expose `agent_spawn` to types that weren't meant to delegate.
+- A tool that is not listed is never declared to the child model and is rejected if called.
+- A listed name that the running Pi build (or the main session) does not provide is ignored, so a spec
+  can name a tool that is unavailable in one environment.
+- An explicitly listed inherited tool (MCP, extension) becomes active in the child. Bridge behavior,
+  main-session permission hooks and model-only failures work as before.
+- Manager tools (`agent_wait`, `agent_steer`, `agent_status`, `agent_output`, `agent_update`,
+  `agent_pause`, `agent_stop`) and the spawn verbs are ordinary allowlist entries: only `task` lists the
+  spawn verbs, which is why only `task` children can delegate.
+- Skills are an exact per-spec allowlist: discovery is off, and only the spec's `skills` paths load.
 
 ## Max Levels (`maxLevels`)
 
@@ -221,7 +228,7 @@ Maximum tree depth, counting the main conversation as level 1. Integer 1–32. D
 | ------------- | ------------------------ | ---------------------------------------------------- |
 | `1`           | No new subagents         | Block spawning while still resuming existing threads |
 | `2`           | Children only            | Flat fan-out; simplest to follow                     |
-| `3` (default) | Children + grandchildren | An `architect` coordinating workers                  |
+| `3` (default) | Children + grandchildren | A `task` agent delegating to `finder`                |
 | `4+`          | Deeper trees             | Large hierarchical teams                             |
 
 Independent roots like `/k` count as level 2, so they can't bypass the limit. Lowering it still lets you resume existing deeper threads.

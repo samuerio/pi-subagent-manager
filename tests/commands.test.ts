@@ -10,16 +10,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { CombinedAutocompleteProvider, rgbColor } from "@earendil-works/pi-tui";
-import { AGENT_COLORS } from "../src/prefs/config.ts";
+import { AGENT_COLORS } from "../src/prefs/colors.ts";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
 import piSubagent from "../src/index.ts";
 import { DEFAULT_MANAGER_SETTINGS, loadManagerSettings } from "../src/prefs/settings.ts";
 import { subagentPrompt } from "../src/orch/prompt.ts";
-import {
-  IMPORT_REQUEST_PREFIX,
-  importWasOffered,
-  markImportOffered,
-} from "../src/prefs/agent-import.ts";
 import { createDialogDriver } from "./helpers/dialogDriver.ts";
 
 async function withCommands(
@@ -46,7 +41,7 @@ async function withCommands(
       join(cwd, "subagent-manager", "settings.json"),
       JSON.stringify({ subagentMode: options.initialMode }),
     );
-  } else markImportOffered(cwd); // Enabled command tests do not scan external agent directories.
+  }
   const sessionManager = SessionManager.inMemory(cwd);
   const hooks = new Map<string, Function>();
   const renders: string[][] = [];
@@ -114,7 +109,7 @@ async function withCommands(
   }
 }
 
-const SUBCOMMANDS = ["tree", "settings", "types", "import", "reload", "reap"].map((value) => ({
+const SUBCOMMANDS = ["tree", "settings", "reload", "reap"].map((value) => ({
   value,
   label: value,
 }));
@@ -134,7 +129,14 @@ function seedThreads(ctx: ExtensionCommandContext, paths: string[]) {
         status: "done",
         createdAt: 1,
       },
-      definition: { name: "worker", description: "test", systemPrompt: "child prompt" },
+      definition: {
+        name: "task",
+        description: "test",
+        systemPrompt: "child prompt",
+        tools: [],
+        skills: [],
+        role: "subagents",
+      },
       inherited: [],
     })),
   });
@@ -142,12 +144,12 @@ function seedThreads(ctx: ExtensionCommandContext, paths: string[]) {
 
 test("agents command defaults to settings and saved settings persist and reach the system prompt", async () => {
   await withCommands(async ({ command, ctx, hooks, renders, replies, cwd }) => {
-    replies.push("maxLevels", "5", "modelSelection", "pick-first-available", "save");
+    replies.push("maxLevels", "5", "subagentMode", "orchestration", "save");
     await command.handler("", ctx);
     assert.match(renders[0]!.join("\n"), /Agents settings/);
     const { settings } = loadManagerSettings({ cwd, agentDir: cwd, includeProject: false });
     assert.equal(settings.maxLevels, 5);
-    assert.equal(settings.modelSelection, "pick-first-available");
+    assert.equal(settings.subagentMode, "orchestration");
     const result = await hooks.get("before_agent_start")!(
       { prompt: "User request", systemPrompt: "Main" },
       ctx,
@@ -194,8 +196,7 @@ test("root turn lifecycle collapses the settled preview without losing the agent
 
 test("off startup is silent: no onboarding, visible widget, or tool exposure", async () => {
   await withCommands(
-    async ({ hooks, ctx, tools, renders, notifications, widgets, cwd }) => {
-      assert.equal(importWasOffered(cwd), false);
+    async ({ hooks, ctx, tools, renders, notifications, widgets }) => {
       assert.deepEqual(renders, []);
       assert.deepEqual(notifications, []);
       assert.ok(widgets.every((widget) => widget === undefined));
@@ -206,19 +207,6 @@ test("off startup is silent: no onboarding, visible widget, or tool exposure", a
       );
     },
     { initialMode: "off" },
-  );
-});
-
-test("orchestration skips first-run import and explains the mode required for manual import", async () => {
-  await withCommands(
-    async ({ command, ctx, renders, notifications, cwd }) => {
-      assert.equal(importWasOffered(cwd), false);
-      assert.deepEqual(renders, []);
-      await command.handler("import", ctx);
-      assert.deepEqual(renders, []);
-      assert.match(notifications.at(-1)!, /Agent import requires Opportunistic mode/);
-    },
-    { initialMode: "orchestration" },
   );
 });
 
@@ -247,42 +235,12 @@ test("saving mode changes updates tools and prompt immediately", async () => {
   });
 });
 
-test("off does not acknowledge migration or inject guidance", async () => {
-  await withCommands(async ({ command, ctx, hooks, replies, cwd }) => {
-    replies.push("subagentMode", "off", "save");
-    await command.handler("settings", ctx);
-    rmSync(join(cwd, "subagent-manager", ".import-offered"));
-    assert.equal(
-      await hooks.get("before_agent_start")!(
-        { systemPrompt: "Main", prompt: `${IMPORT_REQUEST_PREFIX}manual request` },
-        ctx,
-      ),
-      undefined,
-    );
-    assert.equal(importWasOffered(cwd), false);
-  });
-});
-
 test("dialog subcommands decline RPC mode without opening a dialog", async () => {
   await withCommands(async ({ command, ctx, renders, notifications }) => {
     (ctx as { mode: string }).mode = "rpc";
     for (const args of ["", "settings", "tree"]) await command.handler(args, ctx);
     assert.equal(notifications.filter((text) => text.includes("TUI mode")).length, 3);
-    await command.handler("import", ctx);
-    assert.match(notifications.at(-1)!, /Agent import requires TUI mode/);
     assert.equal(renders.length, 0);
-  });
-});
-
-test("only an accepted migration turn acknowledges first-run onboarding", async () => {
-  await withCommands(async ({ hooks, ctx, cwd }) => {
-    rmSync(join(cwd, "subagent-manager", ".import-offered"));
-    const start = (prompt: string) =>
-      hooks.get("before_agent_start")!({ prompt, systemPrompt: "Main" }, ctx);
-    await start("Ordinary request");
-    assert.equal(importWasOffered(cwd), false);
-    await start(`${IMPORT_REQUEST_PREFIX}\nMigration data`);
-    assert.equal(importWasOffered(cwd), true);
   });
 });
 
@@ -292,9 +250,9 @@ test("subcommand completions are fuzzy and unknown subcommands report usage", as
     assert.deepEqual(complete(""), SUBCOMMANDS);
     assert.deepEqual(complete("   "), SUBCOMMANDS);
     assert.equal(complete("sta"), null);
-    assert.deepEqual(complete("TyPeS"), [{ value: "types", label: "types" }]);
-    assert.deepEqual(complete("   tpe"), [{ value: "types", label: "types" }]);
-    for (const prefix of ["thread", "status ", "types foo", "settings 5", "tree /missing"])
+    assert.deepEqual(complete("SeTtInGs"), [{ value: "settings", label: "settings" }]);
+    assert.deepEqual(complete("   tr"), [{ value: "tree", label: "tree" }]);
+    for (const prefix of ["thread", "status ", "reload foo", "settings 5", "tree /missing"])
       assert.equal(complete(prefix), null, prefix);
     await command.handler("nope", ctx);
     assert.match(notifications.at(-1)!, /tree/);
@@ -305,7 +263,7 @@ test("subcommand completions are fuzzy and unknown subcommands report usage", as
   });
 });
 
-test("fork:/fresh: complete every agent type", async () => {
+test("fork:/fresh: complete every built-in agent", async () => {
   await withCommands(async ({ command }) => {
     const values = (prefix: string) =>
       (command.getArgumentCompletions(prefix) as { value: string }[] | null)?.map((c) => c.value);

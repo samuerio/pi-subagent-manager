@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { testSpec } from "./helpers/spec.ts";
 import { ThreadManager } from "../src/orch/manager.ts";
 import type { AgentDriver, DriverOptions } from "../src/types.ts";
 
@@ -13,7 +14,7 @@ test(
     let disposed = false;
     const manager = new ThreadManager({
       rootSnapshot: () => [],
-      getType: (name) => ({ name, description: "worker", systemPrompt: "prompt" }),
+      getType: (name) => testSpec(name, { description: "worker", systemPrompt: "prompt" }),
       toolsFor: () => [],
       createDriver: async (input) => {
         options = input;
@@ -35,7 +36,7 @@ test(
           createdAt: 0,
           sessionFile: "/tmp/saved.jsonl",
         },
-        definition: { name: "worker", description: "worker", systemPrompt: "prompt" },
+        definition: testSpec("worker", { description: "worker", systemPrompt: "prompt" }),
       },
     ]);
     const child = await manager.spawn("/root", {
@@ -87,7 +88,7 @@ test("stopped idle restore reopens read-only with a fresh controller and tracks 
   const messages = [{ role: "user", content: "restored", timestamp: 0 }];
   const manager = new ThreadManager({
     rootSnapshot: () => [],
-    getType: (name) => ({ name, description: "worker", systemPrompt: "prompt" }),
+    getType: (name) => testSpec(name, { description: "worker", systemPrompt: "prompt" }),
     toolsFor: () => [],
     createDriver: async (input) => {
       options = input as DriverOptions & { sessionLeafId?: string | null };
@@ -129,7 +130,7 @@ test("stopped idle restore reopens read-only with a fresh controller and tracks 
         sessionFile: "/tmp/saved.jsonl",
         sessionLeafId: null,
       } as any,
-      definition: { name: "worker", description: "worker", systemPrompt: "prompt" },
+      definition: testSpec("worker", { description: "worker", systemPrompt: "prompt" }),
     },
   ]);
 

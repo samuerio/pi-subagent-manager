@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { testSpec } from "./helpers/spec.ts";
 import { ThreadManager } from "../src/orch/manager.ts";
 import type { ThreadEvent } from "../src/types.ts";
 import { agentTools } from "../src/orch/tools.ts";
@@ -9,7 +10,7 @@ function setup() {
   const gates: Array<(error?: Error) => void> = [];
   const manager = new ThreadManager({
     rootSnapshot: () => [],
-    getType: (name) => ({ name, description: "t", systemPrompt: "t" }),
+    getType: (name) => testSpec(name, { description: "t", systemPrompt: "t" }),
     toolsFor: () => [],
     onEvent: (event) => events.push(event),
     createDriver: async () => {
@@ -126,13 +127,8 @@ test("settled events flag detached spawns; outstandingAsync tracks them", async 
 });
 
 test("tool schemas expose timeoutMs and agent_steer timeoutMs with 30s–5min bounds", () => {
-  const tools = agentTools(
-    () => ({}) as any,
-    "/root",
-    () => [],
-    () => ({}) as any,
-  );
-  const spawn = tools.find((t) => t.name === "agent_spawn")!;
+  const tools = agentTools(() => ({}) as any, "/root");
+  const spawn = tools.find((t) => t.name === "task_spawn")!;
   const props = (spawn.parameters as any).properties.timeoutMs;
   assert.equal(props.minimum, 30000);
   assert.equal(props.maximum, 300000);
@@ -199,7 +195,7 @@ for (const state of ["completed", "paused", "failed", "stopped"] as const) {
             status: "Retained",
             createdAt: 0,
           },
-          definition: { name: "w", description: "test", systemPrompt: "test" },
+          definition: testSpec("w", { description: "test", systemPrompt: "test" }),
           inherited: [],
         },
       ]);

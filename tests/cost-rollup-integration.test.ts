@@ -13,9 +13,13 @@ import { COST_ENTRY, CostLedger, type CostRecord } from "../src/orch/cost-ledger
 import type { ThreadView } from "../src/types.ts";
 import { createDialogDriver } from "./helpers/dialogDriver.ts";
 import { registry, withOfflineHarness } from "./helpers/integrationHarness.ts";
+import { testSpec } from "./helpers/spec.ts";
 
-const worker =
-  "---\nname: worker\ndescription: Cost accounting worker\ntools:\n  allow: [agent_pause, agent_update]\n---\nPerform the assigned work.\n";
+const worker = testSpec("worker", {
+  description: "Cost accounting worker",
+  tools: ["agent_pause", "agent_update"],
+  systemPrompt: "Perform the assigned work.",
+});
 const answer = (cost: number, text = "Done"): AssistantMessage => ({
   role: "assistant",
   content: [{ type: "text", text }],
@@ -98,7 +102,7 @@ test(
     let rootCalls = 0;
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         onRequest(request) {
           if (request.path) {
             assert.equal(request.path, "/root/worker");
@@ -106,9 +110,8 @@ test(
           }
           rootCalls++;
           return rootCalls === 1
-            ? toolUse(0.01, "spawn-worker", "agent_spawn", {
+            ? toolUse(0.01, "spawn-worker", "worker_spawn", {
                 path: "worker",
-                type: "worker",
                 task: "First run",
                 wait: true,
               })
@@ -128,7 +131,7 @@ test(
         assert.equal(registry(root).threads[0].view.costId, identity);
         assert.deepEqual(records(root), [{ threadId: identity, totalUsd: 0.5 }]);
         const rootResults = nativeToolResults(root.getEntries());
-        assert.ok(rootResults.some((result) => result.toolName === "agent_spawn"));
+        assert.ok(rootResults.some((result) => result.toolName === "worker_spawn"));
         assert.ok(
           rootResults.every((result) => result.usage === undefined),
           "no synthetic usage in native tool results",
@@ -181,9 +184,8 @@ test(
         await reap(session);
         assert.deepEqual(registry(restored).threads, []);
         approximately(total(restored), 0.8); // Reaping must not remove historical spend.
-        const replacement = await tool<ThreadView>(session, "agent_spawn", {
+        const replacement = await tool<ThreadView>(session, "worker_spawn", {
           path: "worker",
-          type: "worker",
           task: "Replacement run",
           wait: true,
         });
@@ -206,7 +208,7 @@ test(
   async () => {
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         onRequest(request) {
           assert.ok(request.path, "no root model calls expected");
           if (request.path === "/root/team") return answer(request.pathCall === 1 ? 0.5 : 0.3);
@@ -217,16 +219,14 @@ test(
       async ({ cwd, errors, open, tool }) => {
         const root = SessionManager.create(cwd);
         const session = await open(root);
-        const parent = await tool<ThreadView>(session, "agent_spawn", {
+        const parent = await tool<ThreadView>(session, "worker_spawn", {
           path: "team",
-          type: "worker",
           task: "Parent work",
           wait: true,
         });
         await tool(session, "agent_wait", { path: "team" });
-        const child = await tool<ThreadView>(session, "agent_spawn", {
+        const child = await tool<ThreadView>(session, "worker_spawn", {
           path: "team/child",
-          type: "worker",
           task: "Nested work",
           wait: true,
         });
@@ -259,7 +259,7 @@ test(
   async () => {
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         onRequest(request) {
           assert.equal(request.path, "/root/worker");
           if (request.pathCall === 1)
@@ -272,9 +272,8 @@ test(
       async ({ cwd, errors, open, tool }) => {
         const root = SessionManager.create(cwd);
         const session = await open(root);
-        const paused = await tool<ThreadView>(session, "agent_spawn", {
+        const paused = await tool<ThreadView>(session, "worker_spawn", {
           path: "worker",
-          type: "worker",
           task: "Pause",
           wait: true,
         });
@@ -315,7 +314,7 @@ test(
     });
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         onRequest(request) {
           assert.equal(request.path, "/root/worker");
           if (request.pathCall === 1)
@@ -332,9 +331,8 @@ test(
       async ({ cwd, errors, open, tool }) => {
         const root = SessionManager.create(cwd);
         const session = await open(root);
-        const spawning = tool<ThreadView>(session, "agent_spawn", {
+        const spawning = tool<ThreadView>(session, "worker_spawn", {
           path: "worker",
-          type: "worker",
           task: "Continue until stopped",
           wait: true,
         });

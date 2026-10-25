@@ -26,25 +26,18 @@ import {
   buildUpdateDetails,
   DurableMailbox,
 } from "./mailbox.ts";
-import { selectTools } from "../prefs/config.ts";
 import { TranscriptChannel } from "./transcript.ts";
 import { discoverSubagentExtensions, selectSubagentExtensions } from "./extensions.ts";
 import type { InheritedToolSource } from "./inherited-tools.ts";
-import type { ModelSelectionMode, SubagentExtensionSelection, ToolFilteringMode } from "../prefs/settings.ts";
+import type { SubagentExtensionSelection } from "../prefs/settings.ts";
+import { modelIdentity } from "../prefs/models.ts";
 import {
-  modelIdentity,
-  getModelPreferences,
-  selectPreferredModel,
-  ModelPreferenceError,
-} from "../prefs/models.ts";
-import {
-  THINKING_LEVELS,
-  type AgentType,
-  type ResolvedAgentSettings,
+  type AgentSpec,
   type DriverFactory,
   type DriverOptions,
-  type ThinkingLevel,
 } from "../types.ts";
+import { resolveRoleRouting } from "./routing.ts";
+import { spawnToolNames } from "../agents/specs.ts";
 
 import {
   DIAGNOSTIC_CHANNEL,
@@ -182,107 +175,26 @@ export function toolArgumentSnippet(args: unknown): string | undefined {
 /** Isolated SDK sessions; configured extension reload is experimental and opt-in. */
 export function createDriverFactory(
   getRootContext: () => ExtensionContext,
-  getModelSelection: () => ModelSelectionMode = () => "pick-first-scoped",
-  getToolFiltering: () => ToolFilteringMode = () => "allowed",
   getInheritedTools: () => InheritedToolSource = () => ({ tools: [], activeNames: [] }),
   getSubagentExtensions: () => SubagentExtensionSelection = () => false,
-): DriverFactory & {
-  resolveAgentSettings(type: AgentType, parentPath: string): ResolvedAgentSettings;
-} {
-  // Keep resolved settings even after disposal: descendants inherit settings, not the caller's history.
-  const resolved = new Map<string, { provider: string; id: string; thinking: ThinkingLevel }>();
+): DriverFactory {
   const normalizeScopedModels = (
     scopedModels: ExtensionContext["scopedModels"] | null | undefined,
   ): readonly ScopedModel[] => scopedModels ?? [];
-  const availableModelCandidates = () =>
-    getRootContext()
-      .modelRegistry.getAvailable()
-      .map((model) => ({ model }));
-  const availableScopedModels = (scopedModels: readonly ScopedModel[]) => {
-    const available = new Set(availableModelCandidates().map(({ model }) => modelIdentity(model)));
-    return scopedModels.filter(({ model }) => available.has(modelIdentity(model)));
-  };
-  const selectTypeModelPreference = (
-    type: AgentType,
-    candidates: readonly { model: { provider: string; id: string } }[],
-    filtering: boolean,
-  ) => {
-    try {
-      return selectPreferredModel(type, candidates, filtering);
-    } catch (error) {
-      if (
-        filtering &&
-        candidates.length === 0 &&
-        error instanceof Error &&
-        !error.message.includes("[]")
-      ) {
-        const message = `${error.message} Current /scoped-models scope: [].`;
-        throw error instanceof ModelPreferenceError
-          ? new ModelPreferenceError(message, error.scopedModelFiltering)
-          : new Error(message);
-      }
-      throw error;
-    }
-  };
-  // Discovery and new/restored drivers share model selection and thinking inheritance.
-  const resolveInitialSettings = (
-    type: AgentType,
-    parentPath?: string | null,
-    restored?: ReturnType<SessionManager["buildSessionContext"]>,
-  ) => {
-    const ctx = getRootContext();
-    const parent = parentPath
-      ? resolved.get(`${ctx.sessionManager.getSessionId()}:${parentPath}`)
-      : undefined;
-    const mode = getModelSelection();
-    const preferences = mode === "use-current" ? undefined : getModelPreferences(type);
-    let provider = parent?.provider ?? ctx.model?.provider;
-    let id = parent?.id ?? ctx.model?.id;
-    if (mode === "use-current") {
-      provider = ctx.model?.provider;
-      id = ctx.model?.id;
-    } else if (preferences !== undefined) {
-      const filtering = mode === "pick-first-scoped";
-      const candidates = filtering
-        ? availableScopedModels(normalizeScopedModels(ctx.scopedModels))
-        : availableModelCandidates();
-      ({ provider, id } = parseModelIdentity(
-        selectTypeModelPreference(type, candidates, filtering)!,
-      ));
-    } else if (restored?.model) {
-      provider = restored.model.provider;
-      id = restored.model.modelId;
-    }
-    const savedThinking =
-      restored && THINKING_LEVELS.includes(restored.thinkingLevel as ThinkingLevel)
-        ? (restored.thinkingLevel as ThinkingLevel)
-        : undefined;
-    const thinkingLevel =
-      savedThinking ?? type.thinkingLevel ?? parent?.thinking ?? ctx.thinkingLevel ?? "off";
-    return { provider, id, thinkingLevel };
-  };
-  const resolveAgentSettings = (type: AgentType, parentPath: string): ResolvedAgentSettings => {
-    const ctx = getRootContext();
-    const { provider, id, thinkingLevel } = resolveInitialSettings(type, parentPath);
-    const model =
-      normalizeScopedModels(ctx.scopedModels).find(
-        ({ model }) => model.provider === provider && model.id === id,
-      )?.model ?? (provider && id ? ctx.modelRegistry.find(provider, id) : undefined);
-    if (!model)
-      throw new Error(
-        `Subagent model ${provider ?? "(unset)"}/${id ?? "(unset)"} is unavailable; select a physical model in the root or agent type`,
-      );
-    if (model.api === "pi-virtual")
-      throw new Error(
-        `Virtual model ${provider}/${id} cannot be reproduced through the public registry API. Set this agent type's model to a physical provider/model-id.`,
-      );
-    return { model: modelIdentity(model), thinkingLevel: clampThinkingLevel(model, thinkingLevel) };
+  /**
+   * Routing comes only from the modes.json role pin (fail fast). A spec never
+   * carries a model and a restored session never overrides the pin, so the same
+   * agent always runs on the model the active mode assigns to its role.
+   */
+  const resolveInitialSettings = (spec: AgentSpec) => {
+    const routing = resolveRoleRouting(getRootContext().cwd, spec.role);
+    const { provider, id } = parseModelIdentity(routing.model);
+    return { provider, id, thinkingLevel: routing.thinking };
   };
   const createDriver: DriverFactory = async (options) => {
     options.signal.throwIfAborted();
     const ctx = getRootContext();
     // Tool policy is a startup snapshot; retained live sessions keep their selected set.
-    const toolFiltering = getToolFiltering();
     const extensionSelection = getSubagentExtensions();
     const rootId = ctx.sessionManager.getSessionId();
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(rootId))
@@ -348,22 +260,8 @@ export function createDriverFactory(
         }
       }
     }
-    const restored = options.sessionFile ? sessionManager.buildSessionContext() : undefined;
-    const modelSelection = getModelSelection();
-    // Use Current ignores definition preferences, including for restored/nested sessions.
-    const modelPreferences =
-      modelSelection === "use-current" ? undefined : getModelPreferences(options.type);
-    const filteringEnabled = () => getModelSelection() === "pick-first-scoped";
-    const selectModelPreference = (
-      candidates: readonly { model: { provider: string; id: string } }[],
-      filtering = filteringEnabled(),
-    ) => selectTypeModelPreference(options.type, candidates, filtering);
     const initialScopedModels = normalizeScopedModels(ctx.scopedModels);
-    const { provider, id, thinkingLevel } = resolveInitialSettings(
-      options.type,
-      options.parentPath,
-      restored,
-    );
+    const { provider, id, thinkingLevel } = resolveInitialSettings(options.type);
     options.signal.throwIfAborted();
     const runtime = await ModelRuntime.create({
       authPath: path.join(agentDir, "auth.json"),
@@ -395,7 +293,7 @@ export function createDriverFactory(
     ) => {
       if (!providerId || !modelId)
         throw new Error(
-          `Subagent model ${providerId ?? "(unset)"}/${modelId ?? "(unset)"} is unavailable; select a physical model in the root or agent type`,
+          `Subagent model ${providerId ?? "(unset)"}/${modelId ?? "(unset)"} is unavailable; check modes.json roles.oracle/roles.subagents and provider credentials`,
         );
       await mirrorRuntimeAuth(providerId);
       const sourceModel =
@@ -403,13 +301,13 @@ export function createDriverFactory(
           ?.model ?? ctx.modelRegistry.find(providerId, modelId);
       if (sourceModel?.api === "pi-virtual") {
         throw new Error(
-          `Virtual model ${providerId}/${modelId} cannot be reproduced through the public registry API. Set this agent type's model to a physical provider/model-id.`,
+          `Virtual model ${providerId}/${modelId} cannot be reproduced through the public registry API. Pin a physical provider/model-id in modes.json.`,
         );
       }
       const runtimeModel = runtime.getModel(providerId, modelId);
       if (!runtimeModel)
         throw new Error(
-          `Subagent model ${providerId}/${modelId} is unavailable; select a physical model in the root or agent type`,
+          `Subagent model ${providerId}/${modelId} is unavailable; check modes.json roles.oracle/roles.subagents and provider credentials`,
         );
       return runtimeModel;
     };
@@ -417,19 +315,18 @@ export function createDriverFactory(
     const inherited = getInheritedTools();
     const localNames = new Set([...BUILTINS, ...options.tools.map((tool) => tool.name)]);
     const externalTools = inherited.tools.filter((tool) => !localNames.has(tool.name));
-    const toolNames = selectTools(
-      options.type.tools,
-      [...localNames, ...externalTools.map((tool) => tool.name)],
-      toolFiltering,
-    );
+    // A spec's tool list is a complete allowlist: a name outside it is blocked,
+    // and a listed-but-unavailable name is simply absent. Unknown names are not
+    // an error so a spec can list a builtin the running Pi build does not expose.
+    const available = [...localNames, ...externalTools.map((tool) => tool.name)];
+    const specTools = options.type.tools ?? [];
+    const toolNames = specTools.filter((name) => available.includes(name));
     const allowed = new Set(toolNames);
+    const specToolNames = new Set(specTools);
     const rootActive = new Set(inherited.activeNames);
     // Preserve deferred/codemode exposure rather than flooding model declarations with MCP tools.
     const activeToolNames = toolNames.filter(
-      (name) =>
-        localNames.has(name) ||
-        rootActive.has(name) ||
-        (options.type.tools?.allow?.includes(name) && toolFiltering === "allowed"),
+      (name) => localNames.has(name) || rootActive.has(name) || specToolNames.has(name),
     );
     const projectTrusted = ctx.isProjectTrusted?.() ?? false;
     const extensionPaths = extensionSelection === false || (Array.isArray(extensionSelection) && !extensionSelection.length)
@@ -521,7 +418,10 @@ export function createDriverFactory(
             return base;
           }
         : undefined,
+      // Discovery off; `additionalSkillPaths` still applies, so the two compose
+      // into an exact per-spec skill allowlist.
       noSkills: true,
+      additionalSkillPaths: [...(options.type.skills ?? [])],
       noPromptTemplates: true,
       noContextFiles: true,
       noThemes: true,
@@ -532,10 +432,10 @@ export function createDriverFactory(
           ? `Your lexical parent is ${options.parentPath}; inherited conversation comes only from that parent.`
           : "You are an independent root thread with no inherited history.",
         "When finished, give your final answer normally so it can be handed back. To retain unfinished work without a final answer, call agent_pause (if available), then stop; resume only when instructed.",
-        ...(allowed.has("agent_spawn") && allowed.has("agent_wait")
+        ...(spawnToolNames().some((name) => allowed.has(name)) && allowed.has("agent_wait")
           ? [
               "Name child paths with concise task-based kebab-case slugs (e.g. /root/controller-security-research), independent of type.",
-              "For independent parallel work, launch all siblings with agent_spawn wait:false before calling agent_wait. Children share the main conversation's depth and concurrency limits; waiting parents count as active. Do not delegate work beyond your assigned scope.",
+              "For independent parallel work, launch all siblings with a spawn tool and wait:false before calling agent_wait. Children share the main conversation's depth and concurrency limits; waiting parents count as active. Do not delegate work beyond your assigned scope.",
             ]
           : []),
       ].join("\n\n"),
@@ -567,7 +467,7 @@ export function createDriverFactory(
           pi.on("tool_call", (event) =>
             allowed.has(event.toolName)
               ? undefined
-              : { block: true, reason: "Tool is not allowed by this agent type" },
+              : { block: true, reason: "Tool is not in this agent's allowlist" },
           );
         },
       ],
@@ -685,71 +585,38 @@ export function createDriverFactory(
       })());
     };
     let lastScopedModelsKey = "";
+    /**
+     * Report the model the child actually runs on. The pin decides the model, so
+     * a child never silently drifts to another provider; only /scoped-models is
+     * mirrored live so the child's own model cycling matches the root session.
+     */
     const updateResolved = () => {
       const currentModel = session.model;
       if (!currentModel) throw new Error(`Subagent ${options.path} has no selected model`);
-      resolved.set(`${rootId}:${options.path}`, {
-        provider: currentModel.provider,
-        id: currentModel.id,
-        thinking: session.thinkingLevel,
-      });
       options.onEvent({
         kind: "settings",
         model: modelIdentity(currentModel),
         thinkingLevel: session.thinkingLevel,
       });
     };
-    const assertScopedRequestAuthorized = (
-      currentIdentity: string | undefined,
-      liveScopedModels: readonly ScopedModel[],
-    ) => {
-      if (!filteringEnabled() || modelPreferences === undefined) return;
-      const preferredIdentity = selectModelPreference(
-        availableScopedModels(liveScopedModels),
-        true,
-      );
-      if (!preferredIdentity) return;
-      if (!currentIdentity) throw new Error(`Subagent ${options.path} has no selected model`);
-      if (currentIdentity !== preferredIdentity) {
-        throw new Error(
-          `Agent type ${JSON.stringify(options.type.name)} scope changed for subagent ${JSON.stringify(options.path)}: current model is ${currentIdentity} but preferred is ${preferredIdentity}; resume agent to use ${preferredIdentity}.`,
-        );
-      }
-    };
-    const assertCurrentModelAuthorized = () => {
-      const currentModel = session.model;
-      assertScopedRequestAuthorized(
-        currentModel ? modelIdentity(currentModel) : undefined,
-        normalizeScopedModels(getRootContext().scopedModels),
+    /** One identity for the whole driver: the modes.json pin, never the parent or a restored session. */
+    const pinnedIdentity = `${provider}/${id}`;
+    const assertPinnedModel = (identity: string) => {
+      if (identity === pinnedIdentity) return;
+      throw new Error(
+        `Agent ${JSON.stringify(options.path)} runs on ${identity} but modes.json pins ${JSON.stringify(options.type.role)} to ${pinnedIdentity}; resume the agent after changing the mode`,
       );
     };
-    const enforceScopedModelPolicy = async () => {
+    const enforceModelPin = async () => {
       const liveScopedModels = normalizeScopedModels(getRootContext().scopedModels);
       const key = scopedModelsKey(liveScopedModels);
       if (key !== lastScopedModelsKey) {
         session.setScopedModels([...liveScopedModels]);
         lastScopedModelsKey = key;
       }
-      if (!filteringEnabled() || modelPreferences === undefined) {
-        updateResolved();
-        return;
-      }
-      const preferredIdentity = selectModelPreference(
-        availableScopedModels(liveScopedModels),
-        true,
-      );
-      if (!preferredIdentity) {
-        updateResolved();
-        return;
-      }
       const currentModel = session.model;
-      if (!currentModel || modelIdentity(currentModel) !== preferredIdentity) {
-        const { provider: preferredProvider, id: preferredId } =
-          parseModelIdentity(preferredIdentity);
-        await session.setModel(
-          await resolveRuntimeModel(preferredProvider, preferredId, liveScopedModels),
-        );
-      }
+      if (!currentModel || modelIdentity(currentModel) !== pinnedIdentity)
+        await session.setModel(await resolveRuntimeModel(provider, id, liveScopedModels));
       updateResolved();
     };
     try {
@@ -764,7 +631,7 @@ export function createDriverFactory(
             .join("; ")}`,
         );
       }
-      await enforceScopedModelPolicy();
+      await enforceModelPin();
       options.signal.throwIfAborted();
       await session.bindExtensions({ mode: "print" });
       session.setActiveToolsByName(activeToolNames);
@@ -775,11 +642,9 @@ export function createDriverFactory(
     }
     diagnosticsInitialized = true;
     const streamFunction = session.agent.streamFunction;
+    // A model switch the SDK performs internally must not silently escape the pin.
     session.agent.streamFunction = async (requestModel, context, streamOptions) => {
-      assertScopedRequestAuthorized(
-        modelIdentity(requestModel),
-        normalizeScopedModels(getRootContext().scopedModels),
-      );
+      assertPinnedModel(modelIdentity(requestModel));
       return streamFunction(requestModel, context, streamOptions);
     };
     const mailbox = new DurableMailbox(sessionManager);
@@ -797,7 +662,9 @@ export function createDriverFactory(
       emit("activity", BOOTSTRAP_MESSAGE);
     };
     const queueAccepted = async (kind: "steer" | "followUp", content: string) => {
-      assertCurrentModelAuthorized();
+      const currentModel = session.model;
+      if (!currentModel) throw new Error(`Subagent ${options.path} has no selected model`);
+      assertPinnedModel(modelIdentity(currentModel));
       ensurePersistedSession();
       const accepted = mailbox.accept(kind, content);
       emitCheckpoint();
@@ -953,7 +820,7 @@ export function createDriverFactory(
         baseline = session.messages.length;
         finalOutput = "";
         try {
-          await enforceScopedModelPolicy();
+          await enforceModelPin();
           await resumePending();
           await session.prompt(message, { expandPromptTemplates: false });
           await session.waitForIdle();
@@ -1035,5 +902,5 @@ export function createDriverFactory(
       },
     };
   };
-  return Object.assign(createDriver, { resolveAgentSettings });
+  return createDriver;
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { Theme, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { AGENT_COLORS } from "../src/prefs/config.ts";
+import { AGENT_COLORS } from "../src/prefs/colors.ts";
 import { buildStatusTree, type StatusRow } from "../src/ui/status-ui.ts";
 import { AGENT_PROGRESS_INTERVAL } from "../src/ui/agent-loader.ts";
 import { renderAgentSummary, renderAgentTree, updateWidget } from "../src/ui/ui.ts";

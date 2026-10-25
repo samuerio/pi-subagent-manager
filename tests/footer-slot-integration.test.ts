@@ -10,11 +10,15 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { ThreadView } from "../src/types.ts";
 import { registry, withOfflineHarness } from "./helpers/integrationHarness.ts";
+import { testSpec } from "./helpers/spec.ts";
 
 const UPDATE_EVENT = "pi-footer:update-widget";
 const WIDGET_ID = "subagent_cost";
-const worker =
-  "---\nname: worker\ndescription: Footer cost worker\ntools:\n  allow: []\n---\nPerform the assigned work.\n";
+const worker = testSpec("worker", {
+  description: "Footer cost worker",
+  tools: [],
+  systemPrompt: "Perform the assigned work.",
+});
 const answer = (cost: number): AssistantMessage => ({
   role: "assistant",
   content: [{ type: "text", text: "Done" }],
@@ -67,7 +71,7 @@ test(
     const updates: WidgetUpdate[] = [];
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         managerSettings: { costDisplay: "pi-footer-event", nerdFontIcons: false },
         extensionFactories: [footerObserver(updates)],
         onRequest(request) {
@@ -84,9 +88,8 @@ test(
         // .1 native cost must remain outside the standalone subagent widget.
         await session.prompt("Record a main-agent turn before delegated work");
         assert.equal(lastValue(updates), "💵 $0.0000");
-        const first = await tool<ThreadView>(session, "agent_spawn", {
+        const first = await tool<ThreadView>(session, "worker_spawn", {
           path: "worker",
-          type: "worker",
           task: "First run",
           wait: true,
         });
@@ -149,7 +152,7 @@ test(
     });
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         managerSettings: { costDisplay: "pi-footer-event", nerdFontIcons: false },
         extensionFactories: [footerObserver(updates)],
         onRequest(request) {
@@ -161,9 +164,8 @@ test(
       },
       async ({ cwd, errors, open, tool }) => {
         const session = await open(SessionManager.create(cwd));
-        await tool(session, "agent_spawn", {
+        await tool(session, "worker_spawn", {
           path: "worker",
-          type: "worker",
           task: "First run",
           wait: true,
         });
@@ -196,7 +198,7 @@ test(
     const updates: WidgetUpdate[] = [];
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         managerSettings: { costDisplay: "pi-footer-event", nerdFontIcons: true },
         extensionFactories: [footerObserver(updates)],
         onRequest(request) {
@@ -206,9 +208,8 @@ test(
       },
       async ({ cwd, directory, errors, open, tool }) => {
         const session = await open(SessionManager.create(cwd));
-        await tool(session, "agent_spawn", {
+        await tool(session, "worker_spawn", {
           path: "worker",
-          type: "worker",
           task: "First run",
           wait: true,
         });
@@ -250,7 +251,7 @@ test(
     const updates: WidgetUpdate[] = [];
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         managerSettings: { costDisplay: "pi-footer-event", nerdFontIcons: false },
         extensionFactories: [footerObserver(updates, false)],
         onRequest(request) {
@@ -261,9 +262,8 @@ test(
       async ({ cwd, errors, open, tool }) => {
         const session = await open(SessionManager.create(cwd));
         assert.equal(lastValue(updates), "💵 $0.0000");
-        await tool(session, "agent_spawn", {
+        await tool(session, "worker_spawn", {
           path: "worker",
-          type: "worker",
           task: "First run",
           wait: true,
         });
@@ -280,7 +280,8 @@ test("default status key publishes before startup completes and Pi status includ
   const statuses = new Map<string, string>();
   const updates: WidgetUpdate[] = [];
   await withOfflineHarness({
-    agentFiles: { worker },
+    specs: [worker],
+    managerSettings: {},
     extensionFactories: [footerObserver(updates)],
     onRequest(request) {
       if (request.path) assert.equal(statuses.get(WIDGET_ID), "💵 $0.0000", "key is selectable before child returns");
@@ -302,7 +303,7 @@ test("default status key publishes before startup completes and Pi status includ
     await reloadSettings(session);
     assert.equal(statuses.get(WIDGET_ID), "💵 $0.0000");
     statuses.clear(); // Startup must republish even if a consumer lost the initial update.
-    await tool(session, "agent_spawn", { path: "worker", type: "worker", task: "Cost", wait: true });
+    await tool(session, "worker_spawn", { path: "worker", task: "Cost", wait: true });
     await tool(session, "agent_wait", { path: "worker" });
     assert.equal(statuses.get(WIDGET_ID), "💵 $0.5000");
     await writeFile(path.join(directory, "subagent-manager", "settings.json"), JSON.stringify({ costDisplay: "pi-status", costValue: "total" }));

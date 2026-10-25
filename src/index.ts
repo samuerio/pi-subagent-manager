@@ -3,12 +3,6 @@ import { randomUUID } from "node:crypto";
 import { buildSessionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
-import { ConfigStore } from "./prefs/config.ts";
-import {
-  IMPORT_REQUEST_PREFIX,
-  markImportOffered,
-  offerAgentImport,
-} from "./prefs/agent-import.ts";
 import { ThreadManager } from "./orch/manager.ts";
 import { loadManagerSettings } from "./prefs/settings.ts";
 import { configureAgents } from "./ui/settings-ui.ts";
@@ -24,8 +18,9 @@ import { createInheritedToolSource } from "./orch/inherited-tools.ts";
 import { subagentPrompt } from "./orch/prompt.ts";
 import { ChecklistMetaMirror, checklistStatus } from "./orch/checklist-integration.ts";
 import { agentTools } from "./orch/tools.ts";
-import { editAgentTypes, updateWidget } from "./ui/ui.ts";
+import { updateWidget } from "./ui/ui.ts";
 import { canOpenDialog, dialogMenu } from "./ui/dialog.ts";
+import { getAgentSpec, isAgentSpecName, listAgentSpecs } from "./agents/specs.ts";
 import type { SavedThread, ThreadEvent, ThreadView } from "./types.ts";
 import { COST_ENTRY, CostLedger } from "./orch/cost-ledger.ts";
 import { CostFooterController } from "./ui/cost-footer.ts";
@@ -50,11 +45,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
   });
   let context: ExtensionContext | undefined;
   const inheritedTools = createInheritedToolSource(pi);
-  let store = new ConfigStore({
-    cwd: process.cwd(),
-    agentDir: getAgentDir(),
-    includeProject: false,
-  });
   let manager: ThreadManager | undefined;
   let costLedger = new CostLedger();
   const costFooter = new CostFooterController(
@@ -233,31 +223,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
     ctx.ui.setEditorComponent(navigationEditorFactory);
   };
   let persistenceSignature = "";
-  let migrationRequested = false;
-  let importInProgress = false;
-  const importAgents = async (ctx: ExtensionContext, firstRun: boolean) => {
-    // Migration requires the root's file tools and must not delegate source prompts.
-    if (limits.subagentMode === "orchestration") {
-      if (!firstRun)
-        ctx.ui.notify(
-          "Agent import requires Opportunistic mode. Change Subagent Mode in /agents settings.",
-          "info",
-        );
-      return;
-    }
-    if (importInProgress) return;
-    importInProgress = true;
-    try {
-      migrationRequested =
-        (await offerAgentImport(pi, ctx, {
-          agentDir: getAgentDir(),
-          store,
-          firstRun,
-        })) || migrationRequested;
-    } finally {
-      importInProgress = false;
-    }
-  };
   const requireManager = () => {
     if (!manager) throw new Error("Subagent threads are not initialized; start a Pi session first");
     return manager;
@@ -515,19 +480,11 @@ export default function piSubagent(pi: ExtensionAPI): void {
   const makeDriverFactory = () =>
     createDriverFactory(
       requireContext,
-      () => limits.modelSelection,
-      () => limits.toolFiltering,
       () => inheritedTools.snapshot(),
       () => limits.subagentExtensions,
     );
   let driverFactory = makeDriverFactory();
-  const toolsFor = (path: string) =>
-    agentTools(
-      requireManager,
-      path,
-      () => store.list(),
-      (type) => driverFactory.resolveAgentSettings(type, path),
-    );
+  const toolsFor = (path: string) => agentTools(requireManager, path);
   const rootTools = toolsFor("/root");
   let toolsEnabled: boolean | undefined;
   const syncTools = () => {
@@ -578,10 +535,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
     rootTurnEnded = true;
     if (manager) refreshWidget(ctx);
     refreshCostFooter(ctx);
-    // A migration can span clarification turns. Reload after each root turn, without converting files.
-    if (limits.subagentMode === "off" || !migrationRequested) return;
-    store.reload();
-    if (store.diagnostics.length) context?.ui.notify(store.diagnostics.join("\n"), "warning");
   });
   syncTools();
   pi.on("before_agent_start", async (event, ctx) => {
@@ -591,17 +544,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
       limits.checklistIntegration && limits.subagentMode !== "off" && currentChecklistStatus(ctx).eligible,
     );
     if (!prompt) return;
-    if (
-      limits.subagentMode === "opportunistic" &&
-      "prompt" in event &&
-      event.prompt.startsWith(IMPORT_REQUEST_PREFIX)
-    ) {
-      try {
-        markImportOffered(getAgentDir());
-      } catch (error) {
-        ctx.ui.notify(`Could not save import onboarding state: ${String(error)}`, "warning");
-      }
-    }
     return {
       systemPrompt: `${event.systemPrompt}\n\n${prompt}`,
     };
@@ -631,11 +573,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
       widgetCollapsed = false;
       hiddenWidgetThreads.clear();
     }
-    store = new ConfigStore({
-      cwd: ctx.cwd,
-      agentDir: getAgentDir(),
-      includeProject: ctx.isProjectTrusted(),
-    });
     persistenceSignature = "";
     const settingsDiagnostics = loadLimits(ctx);
     syncTools();
@@ -644,7 +581,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
       ...limits,
       createDriver: driverFactory,
       rootSnapshot: () => buildSessionContext(requireContext().sessionManager.getBranch()).messages,
-      getType: (name) => store.get(name),
+      getType: getAgentSpec,
       toolsFor,
       onEventError: (error, event) => {
         const message = error instanceof Error ? error.message : String(error);
@@ -697,14 +634,12 @@ export default function piSubagent(pi: ExtensionAPI): void {
     for (const saved of instance.saved()) rollupCost({ ...saved.view, updatedAt: Date.now() });
     restoreRootMailbox(ctx);
     refreshWidget(ctx);
-    const diagnostics = [...store.diagnostics, ...settingsDiagnostics];
-    if (limits.subagentMode !== "off" && diagnostics.length)
-      ctx.ui.notify(diagnostics.join("\n"), "warning");
+    if (limits.subagentMode !== "off" && settingsDiagnostics.length)
+      ctx.ui.notify(settingsDiagnostics.join("\n"), "warning");
   };
   pi.on("session_start", async (event, ctx) => {
     capabilityActive = true;
     await attachSession(ctx, true, event.reason !== "startup");
-    if (limits.subagentMode !== "off") await importAgents(ctx, true);
   });
   pi.on("session_tree", async (_event, ctx) => attachSession(ctx));
   const stopWorkingThreads = async () => {
@@ -739,13 +674,14 @@ export default function piSubagent(pi: ExtensionAPI): void {
     manager = undefined;
     context = undefined;
   });
-  const agentSubcommands = ["tree", "settings", "types", "import", "reload", "reap"] as const;
+  const agentSubcommands = ["tree", "settings", "reload", "reap"] as const;
   const spawnModes = ["fork", "fresh"] as const;
-  /** `/agents fork:<type> <task>` inherits the main conversation; `fresh:` starts with no context. */
+  const agentNames = listAgentSpecs().map((spec) => spec.name);
+  /** `/agents fork:<agent> <task>` inherits the main conversation; `fresh:` starts with no context. */
   const spawnFromCommand = async (
     ctx: ExtensionContext,
     mode: (typeof spawnModes)[number],
-    typeName: string,
+    agentName: string,
     task: string,
   ) => {
     if (limits.subagentMode === "off") {
@@ -753,22 +689,22 @@ export default function piSubagent(pi: ExtensionAPI): void {
       return;
     }
     const current = requireManager();
-    if (!store.list().some((type) => type.name === typeName)) {
-      ctx.ui.notify(`Unknown agent type: ${typeName}`, "error");
+    if (!isAgentSpecName(agentName)) {
+      ctx.ui.notify(`Unknown agent: ${agentName}; available: ${agentNames.join(", ")}`, "error");
       return;
     }
-    const base = typeName.replace(/[^A-Za-z0-9_-]/g, "-").replace(/^[^A-Za-z0-9]+/, "") || "agent";
+    const base = agentName.replace(/[^A-Za-z0-9_-]/g, "-").replace(/^[^A-Za-z0-9]+/, "") || "agent";
     const taken = new Set(current.list().map((thread) => thread.path));
     const prefix = mode === "fork" ? "/root/" : "/";
     let n = 1;
     while (taken.has(`${prefix}${base}-${n}`)) n++;
     const path = `${prefix}${base}-${n}`;
     try {
-      await current.scope("/root").spawn({ path, type: typeName, task, wait: false });
+      await current.scope("/root").spawn({ path, type: agentName, task, wait: false });
       persist();
       refreshWidget(ctx);
       ctx.ui.notify(
-        `Started ${typeName} (${mode === "fork" ? "forked context" : "fresh context"}) at ${path}`,
+        `Started ${agentName} (${mode === "fork" ? "forked context" : "fresh context"}) at ${path}`,
         "info",
       );
     } catch (error) {
@@ -806,9 +742,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
         colon >= 0 ? lower.slice(0, colon) === mode : lower.length >= 2 && mode.startsWith(lower),
       );
       if (modes.length) {
-        const names = store.list().map((type) => type.name);
         const filter = colon >= 0 ? lower.slice(colon + 1) : "";
-        const matched = filter ? fuzzyFilter(names, filter, (name) => name) : names;
+        const matched = filter ? fuzzyFilter(agentNames, filter, (name) => name) : agentNames;
         const out = modes.flatMap((mode) =>
           matched.map((name) => ({
             value: `${mode}:${name}`,
@@ -829,17 +764,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
         if (!task)
           ctx.ui.notify(`Usage: /agents ${spawnMatch[1]}:${spawnMatch[2]} <task>`, "warning");
         else await spawnFromCommand(ctx, spawnMatch[1] as "fork" | "fresh", spawnMatch[2]!, task);
-      } else if (command === "import") {
-        await importAgents(ctx, false);
-      } else if (command === "types") {
-        await editAgentTypes(ctx, store, limits.nerdFontIcons, {
-          getAllTools: () => pi.getAllTools(),
-          toolFiltering: limits.toolFiltering,
-        });
-        store.reload();
       } else if (command === "reload") {
-        store.reload();
-        const diagnostics = [...store.diagnostics, ...loadLimits(ctx)];
+        const diagnostics = loadLimits(ctx);
         requireManager().setLimits(limits);
         syncTools();
         refreshWidget(ctx);
@@ -847,15 +773,13 @@ export default function piSubagent(pi: ExtensionAPI): void {
         ctx.ui.notify(
           diagnostics.length
             ? diagnostics.join("\n")
-            : `Loaded ${store.list().length} agent types; maximum ${limits.maxLevels} levels`,
+            : `Reloaded settings; agents: ${agentNames.join(", ")}; maximum ${limits.maxLevels} levels`,
           diagnostics.length ? "warning" : "info",
         );
       } else if (!command || command === "settings") {
         await configureAgents(ctx, {
-          store,
           settings: limits,
           agentDir: getAgentDir(),
-          getAllTools: () => pi.getAllTools(),
           checklistStatus: () => currentChecklistStatus(ctx),
           apply: () => {
             const diagnostics = loadLimits(ctx);
@@ -905,7 +829,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
         );
       } else
         ctx.ui.notify(
-          "Usage: /agents [tree [path] | settings | types | import | reload | reap | fork:<agent> <task> | fresh:<agent> <task>]",
+          `Usage: /agents [tree [path] | settings | reload | reap | fork:<agent> <task> | fresh:<agent> <task>]\nAgents: ${agentNames.join(", ")}`,
           "warning",
         );
     },

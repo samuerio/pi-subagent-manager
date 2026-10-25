@@ -3,43 +3,36 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
-export interface ResolvedAgentSettings {
-  model: string;
-  thinkingLevel: ThinkingLevel;
-}
-export interface AgentType {
+/** Model routing role pinned in modes.json: the advisor or the general worker pool. */
+export const AGENT_ROLES = ["oracle", "subagents"] as const;
+export type AgentRole = (typeof AGENT_ROLES)[number];
+export const AGENT_SPEC_NAMES = ["task", "finder", "oracle", "librarian"] as const;
+export type AgentSpecName = (typeof AGENT_SPEC_NAMES)[number];
+/**
+ * A built-in agent. Specs are code constants (see src/agents/specs.ts): there is
+ * no file-based agent configuration and no per-agent model preference, because
+ * the model comes from the modes.json role pin at spawn time.
+ */
+export interface AgentSpec {
+  /**
+   * Spawn tool name is `<name>_spawn`; also the widget label and thread `type`.
+   * The built-in table uses AGENT_SPEC_NAMES; the manager accepts any name its
+   * `getType` callback resolves, which keeps adapters and tests independent of
+   * the shipped roster.
+   */
   name: string;
+  /** Tool description shown to the parent model. */
   description: string;
-  models?: string[];
-  /** @deprecated Use ordered models instead. */
-  model?: string;
-  /** Advisory display names. Not provider/model pins and never used for selection. */
-  modelSuggestions?: string[];
-  thinkingLevel?: ThinkingLevel;
+  systemPrompt: string;
+  /** Complete tool allowlist for the child process; names outside it are blocked. */
+  tools: string[];
+  /** Absolute skill directory allowlist for the child process. */
+  skills: string[];
+  role: AgentRole;
   /** Pi semantic token for the type pill background and task path foreground. */
   color?: string;
   /** Optional literal Nerd Font glyph; displayed only when the labs setting is enabled. */
   icon?: string;
-  tools?: { allow?: string[]; block?: string[] };
-  systemPrompt: string;
-  filePath?: string;
-  source?: "bundled" | "user" | "project";
-  /**
-   * How this definition is customized relative to its base.
-   * - fork: a full `<name>.md` copy (owns the system prompt).
-   * - override: a settings-only `<name>.yml` merged on top of the base
-   *   (no Markdown body; unset fields follow the base).
-   * Absent for pure bundled definitions and brand-new drafts.
-   */
-  customization?: {
-    kind: "fork" | "override";
-    scope: "user" | "project";
-    filePath: string;
-  };
-  /** Source of the base definition under the customization, if any. */
-  baseSource?: "bundled" | "user" | "project";
-  /** File path of the base definition under the customization, if any. */
-  baseFilePath?: string;
 }
 export type ThreadState = "starting" | "running" | "paused" | "completed" | "failed" | "stopped";
 export interface ChildDiagnostic {
@@ -154,7 +147,7 @@ export interface AgentDriver {
 }
 export interface DriverOptions {
   path: string;
-  type: AgentType;
+  type: AgentSpec;
   inherited: AgentMessage[];
   tools: ToolDefinition[];
   onEvent(event: DriverEvent): void;
@@ -193,7 +186,7 @@ export interface SavedThreadView {
 }
 export interface SavedThread {
   view: SavedThreadView;
-  definition: AgentType;
+  definition: AgentSpec;
   /** Reserved threads may not have a transcript yet; preserve their initial context. */
   inherited?: AgentMessage[];
 }
@@ -243,7 +236,7 @@ export interface ThreadActivity {
 export interface ManagerOptions {
   createDriver: DriverFactory;
   rootSnapshot(): AgentMessage[];
-  getType(name: string): AgentType;
+  getType(name: string): AgentSpec;
   toolsFor(path: string): ToolDefinition[];
   onEvent?(event: ThreadEvent): void;
   /** Called after each live activity of an active agent. Failures are ignored. */

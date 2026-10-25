@@ -1,7 +1,6 @@
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { basename } from "node:path";
 import { discoverSubagentExtensions } from "../orch/extensions.ts";
-import type { ConfigStore } from "../prefs/config.ts";
 import {
   canOpenDialog,
   dialogInput,
@@ -24,14 +23,10 @@ import {
   saveManagerOverrides,
   setManagerProjectSettings,
   type ManagerSettings,
-  type ModelSelectionMode,
   type SubagentMode,
-  type ToolFilteringMode,
   type WidgetMode,
 } from "../prefs/settings.ts";
-import { editAgentTypes } from "./ui.ts";
 import { HOUSEKEEPING_PICKER_CANCEL, pickHousekeepingModel } from "./model-picker.ts";
-import type { ToolEditorOptions } from "./tool-picker.ts";
 import { AGENT_LOADERS, availableLoaderStyles, effectiveLoaderStyle } from "./agent-loader.ts";
 import { costIconGlyph } from "./cost-footer.ts";
 import { CHECKLIST_REQUIREMENTS, type ChecklistStatus } from "../orch/checklist-integration.ts";
@@ -87,30 +82,6 @@ const MODE_OPTIONS = [
 
 const MODE_HELP =
   "Off: no subagent tools or prompt guidance.\nOpportunistic: delegate only parallelizable or very large tasks.\nOrchestration: /root delegates all execution and only coordinates and synthesizes results.";
-
-const TOOL_FILTERING_OPTIONS = [
-  {
-    id: "allowed",
-    label: "Allowed (except blocked)",
-    value: "Allow list minus block list",
-    help: "Only tools in the agent YAML allow list are available, minus its block list.\nBlocked tools take precedence. A missing or empty allow list means no tools.",
-  },
-  {
-    id: "all-except-blocked",
-    label: "All except blocked",
-    value: "Ignore allow list",
-    help: "All available tools except those in the agent YAML block list.\nThe allow list is completely ignored.",
-  },
-  {
-    id: "all",
-    label: "All",
-    value: "Ignore both lists",
-    help: "All available tools.\nThe agent YAML allow and block lists are completely ignored.",
-  },
-] as const;
-
-const TOOL_FILTERING_HELP =
-  "Allowed (except blocked): only allow-listed tools, minus blocked tools; a missing or empty allow list means no tools.\nAll except blocked: ignore the allow list; block-listed tools remain blocked.\nAll: ignore both lists.\nSave and apply to affect agents when their sessions start.";
 
 const WIDGET_MODE_OPTIONS = [
   {
@@ -300,37 +271,11 @@ async function configureHousekeeping(ctx: ExtensionCommandContext, draft: Manage
   }
 }
 
-const MODEL_SELECTION_OPTIONS = [
-  {
-    id: "pick-first-available",
-    label: "Pick First (available)",
-    value: "First available model in the agent's list",
-    help: "Pick First (available):\nPick the first model in the agent's models list available in Pi with an enabled, authenticated provider.\nSkip missing models and providers without credentials; try the next preference.",
-  },
-  {
-    id: "pick-first-scoped",
-    label: "Pick First (scoped)",
-    value: "First available preference in the session scope",
-    help: "Pick First (scoped):\nPick the first available model in the agent's models list that is also selected in the current session's /scoped-models.\nSkip unavailable models and providers without credentials.",
-  },
-  {
-    id: "use-current",
-    label: "Use Current",
-    value: "Use the main session's current model",
-    help: "Use Current:\nIgnore the agent's models list and use the main session's current model.\nKeep each agent's configured thinking level, not the main session's thinking level.",
-  },
-] as const;
-
-const MODEL_SELECTION_HELP =
-  "Pick First (available): first preference with an enabled, authenticated provider in Pi.\nPick First (scoped): same, limited to the current session's /scoped-models.\nUse Current: ignore models and use the main session's current model; keep the agent's thinking level.\nOnly the models list affects runtime picking; modelSuggestions are search hints.\nSave and apply to affect agents when their sessions start.";
-
 export async function configureAgents(
   ctx: ExtensionCommandContext,
   options: {
-    store: ConfigStore;
     settings: ManagerSettings;
     agentDir: string;
-    getAllTools?: ToolEditorOptions["getAllTools"];
     /** Live pi-checklist eligibility; absent means unavailable (fail closed). */
     checklistStatus?: () => ChecklistStatus;
     apply(): void;
@@ -364,10 +309,8 @@ function checklistRow(enabled: boolean, status: ChecklistStatus): DialogRow {
 async function configureAgentsDialog(
   ctx: ExtensionCommandContext,
   options: {
-    store: ConfigStore;
     settings: ManagerSettings;
     agentDir: string;
-    getAllTools?: ToolEditorOptions["getAllTools"];
     /** Live pi-checklist eligibility; absent means unavailable (fail closed). */
     checklistStatus?: () => ChecklistStatus;
     apply(): void;
@@ -406,22 +349,10 @@ async function configureAgentsDialog(
           value: MODE_OPTIONS.find((mode) => mode.id === draft.subagentMode)!.label,
           help: MODE_HELP,
         },
-        {
-          id: "toolFiltering",
-          label: "Tool Filtering",
-          value: TOOL_FILTERING_OPTIONS.find((mode) => mode.id === draft.toolFiltering)!.label,
-          help: TOOL_FILTERING_HELP,
-        },
         ...FIELDS.map((field) => ({
           ...field,
           value: String(draft[field.id]),
         })),
-        {
-          id: "modelSelection",
-          label: "Model Picking",
-          value: MODEL_SELECTION_OPTIONS.find((mode) => mode.id === draft.modelSelection)!.label,
-          help: MODEL_SELECTION_HELP,
-        },
         {
           id: "widgetMode",
           label: "Status Widget",
@@ -445,7 +376,7 @@ async function configureAgentsDialog(
           id: "nerdFontIcons",
           label: "[lab] Nerd Font icons",
           value: draft.nerdFontIcons ? "On" : "Off",
-          help: "Experimental: display each agent type’s optional Nerd Font icon and unlock Nerd Font loader palettes.\nRequires a Nerd Font configured in your terminal; otherwise glyphs may appear as boxes.\nOff by default. Braille and ASCII loaders work with this Off. Save and apply to update immediately.",
+          help: "Experimental: display each agent’s optional Nerd Font icon and unlock Nerd Font loader palettes.\nRequires a Nerd Font configured in your terminal; otherwise glyphs may appear as boxes.\nOff by default. Braille and ASCII loaders work with this Off. Save and apply to update immediately.",
         },
         {
           id: "loaderStyle",
@@ -471,12 +402,6 @@ async function configureAgentsDialog(
           label: "Save scope",
           value: scope === "user" ? "Global" : "Current Project",
           help: "Global: save overrides of built-in defaults for all projects.\nCurrent Project: save overrides of global settings for this trusted project.\nSwitching requires confirmation: enabling Project creates its settings file; switching to Global deletes it and discards unsaved edits. Confirmed scope changes happen immediately, even if you later cancel.",
-        },
-        {
-          id: "types",
-          label: "Agent definitions",
-          value: `${options.store.list().length} types`,
-          help: "Create or edit agent definitions.\nConfigure model preferences and tool policy for each agent type.",
         },
         {
           id: "defaults",
@@ -537,18 +462,6 @@ async function configureAgentsDialog(
         });
         if (MODE_OPTIONS.some((option) => option.id === mode))
           draft.subagentMode = mode as SubagentMode;
-      } else if (action === "toolFiltering") {
-        const mode = await dialogMenu(ctx, "Tool Filtering", [...TOOL_FILTERING_OPTIONS], {
-          selectedId: draft.toolFiltering,
-        });
-        if (TOOL_FILTERING_OPTIONS.some((option) => option.id === mode))
-          draft.toolFiltering = mode as ToolFilteringMode;
-      } else if (action === "modelSelection") {
-        const mode = await dialogMenu(ctx, "Model Picking", [...MODEL_SELECTION_OPTIONS], {
-          selectedId: draft.modelSelection,
-        });
-        if (MODEL_SELECTION_OPTIONS.some((option) => option.id === mode))
-          draft.modelSelection = mode as ModelSelectionMode;
       } else if (action === "widgetMode") {
         const mode = await dialogMenu(ctx, "Status Widget", [...WIDGET_MODE_OPTIONS], {
           selectedId: draft.widgetMode,
@@ -646,13 +559,6 @@ async function configureAgentsDialog(
             "info",
           );
         }
-      }
-      else if (action === "types") {
-        await editAgentTypes(ctx, options.store, draft.nerdFontIcons, {
-          getAllTools: options.getAllTools ?? (() => []),
-          toolFiltering: draft.toolFiltering,
-        });
-        options.store.reload();
       } else if (action === "save") {
         if (draft.checklistIntegration && !baseline.checklistIntegration) {
           const status = checklistStatus();

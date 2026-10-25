@@ -21,12 +21,11 @@ Tests run offline with no model credentials. Scripted-provider SDK tests cover n
 | `src/orch/tools.ts`                                                          | Caller-bound model tools                                                                                           |
 | `src/orch/prompt.ts`                                                         | System-prompt guidance per mode                                                                                    |
 | `src/orch/housekeeping.ts`                                                   | [labs] Housekeeping summarizer: throttling, cancellation, model resolution and the one-line summary call          |
-| `src/prefs/config.ts`                                                        | Frontmatter validation, precedence, atomic saves                                                                   |
+| `src/agents/specs.ts`                                                        | The built-in agent roster: prompts, tool allowlists, skills, role, color, icon                                     |
+| `src/orch/routing.ts`                                                        | `modes.json` role pins for the `oracle` and `subagents` model roles                                                |
 | `src/prefs/settings.ts`                                                      | Manager settings, validation, safe paths                                                                           |
-| `src/prefs/models.ts`                                                        | Model selection                                                                                                    |
-| `src/prefs/agent-import.ts`, `import-discovery.ts`, `import-instructions.ts` | Import consent, read-only discovery, migration guidance                                                            |
-| `src/ui/`                                                                    | Dialogs, settings, type editor, model and import pickers, thread tree, widget                                      |
-| `agents/`                                                                    | Bundled agent definitions                                                                                          |
+| `src/prefs/models.ts`                                                        | `provider/model-id` identity                                                                                       |
+| `src/ui/`                                                                    | Dialogs, settings, thread tree, widget, live view                                                                  |
 
 ## Changelog
 
@@ -66,7 +65,7 @@ git tag -a v<version> -m v<version>
 git push && git push --tags
 ```
 
-The package ships TypeScript sources and `agents/`; check `files` in `package.json` when adding assets.
+The package ships TypeScript sources and `docs/`; check `files` in `package.json` when adding assets. Agent definitions are code, so an added agent also needs its entry in `src/agents/specs.ts` and (for completion and prompt guidance) `AGENT_SPEC_NAMES` in `src/types.ts`.
 
 ## Background
 

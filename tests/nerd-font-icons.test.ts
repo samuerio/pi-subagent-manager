@@ -5,17 +5,25 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, stripTerminalSequences } from "@earendil-works/pi-tui";
-import { ConfigStore, parseAgentType, serializeAgentType } from "../src/prefs/config.ts";
+import { AGENT_SPECS } from "../src/agents/specs.ts";
 import { DEFAULT_MANAGER_SETTINGS, loadManagerSettings, saveManagerSettings } from "../src/prefs/settings.ts";
 import { ThreadManager } from "../src/orch/manager.ts";
 import { agentTypeBadge, agentTypeLabel, renderAgentTree, renderThreads, updateWidget } from "../src/ui/ui.ts";
 import { StatusDialog } from "../src/ui/status-ui.ts";
 import { LiveAgentView } from "../src/ui/live-agent-view.ts";
-import type { AgentType, ManagerOptions, ThreadService, ThreadView } from "../src/types.ts";
+import type { AgentSpec, ManagerOptions, ThreadService, ThreadView } from "../src/types.ts";
 
 const icon = "\uf121";
 const astralIcon = "\u{f0821}";
-const definition: AgentType = { name: "worker", description: "Worker", systemPrompt: "Work", icon };
+const definition: AgentSpec = {
+  name: "task",
+  description: "Worker",
+  systemPrompt: "Work",
+  tools: [],
+  skills: [],
+  role: "subagents",
+  icon,
+};
 const theme = {
   fg: (_color: string, text: string) => text,
   colors: { accent: { kind: "rgb", r: 94, g: 172, b: 211 } },
@@ -45,43 +53,13 @@ function manager(options: Partial<ManagerOptions> = {}) {
   });
 }
 
-test("optional icons round-trip BMP and supplementary glyphs, never glyph names or terminal controls", () => {
-  for (const glyph of [icon, astralIcon, "\u{100001}"]) {
-    const type = { ...definition, icon: glyph };
-    assert.deepEqual(parseAgentType(serializeAgentType(type)), type);
+test("every built-in agent carries a distinct Nerd Font glyph", () => {
+  const glyphs = AGENT_SPECS.map((spec) => spec.icon);
+  assert.equal(new Set(glyphs).size, AGENT_SPECS.length);
+  for (const spec of AGENT_SPECS) {
+    assert.match(spec.icon ?? "", /^\p{Co}$/u, spec.name);
+    assert.ok(spec.color, spec.name);
   }
-  const { icon: _icon, ...legacy } = definition;
-  assert.deepEqual(parseAgentType(serializeAgentType(legacy)), legacy);
-  for (const invalid of ["", "nf-fa-code", "U+F121", "x", " ", icon + icon, "\x1b[31m", "\n", true, 42, null]) {
-    assert.throws(() => serializeAgentType({ ...definition, icon: invalid } as AgentType), /icon must be/);
-  }
-});
-
-test("all six bundled agents carry distinct verified Nerd Fonts glyphs", () => {
-  const expected = {
-    architect: astralIcon, coder: icon, researcher: "\uf002",
-    reviewer: "\uebd1", tasker: "\uf45e", writer: "\uf040",
-  };
-  assert.equal(new Set(Object.values(expected)).size, 6);
-  for (const [name, glyph] of Object.entries(expected)) {
-    const type = parseAgentType(readFileSync(new URL(`../agents/${name}.md`, import.meta.url), "utf8"));
-    assert.equal(type.icon, glyph, name);
-  }
-});
-
-test("custom agent icons save and reload in user and trusted project scopes", (t) => {
-  const root = mkdtempSync(join(tmpdir(), "pi-icon-config-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const store = new ConfigStore({ cwd: root, agentDir: join(root, "global"), bundledDir: join(root, "bundled"), includeProject: true });
-  store.save(definition, "user");
-  assert.equal(store.get("worker").icon, icon);
-  store.save({ ...definition, icon: astralIcon }, "project");
-  assert.equal(store.get("worker").icon, astralIcon);
-  const untrusted = new ConfigStore({ cwd: root, agentDir: join(root, "global"), bundledDir: join(root, "bundled"), includeProject: false });
-  assert.equal(untrusted.get("worker").icon, icon);
-  const { icon: _icon, ...cleared } = definition;
-  store.save(cleared, "project");
-  assert.equal(store.get("worker").icon, undefined);
 });
 
 test("labs toggle defaults off, layers per key, validates booleans, and persists", (t) => {

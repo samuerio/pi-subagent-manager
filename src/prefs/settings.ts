@@ -32,16 +32,6 @@ export type CostIcon = (typeof COST_ICONS)[number];
 export const LOADER_STYLES = ["circle", "braille", "hourglass", "ascii", "ascii-star", "ascii-pulse"] as const;
 export type LoaderStyle = (typeof LOADER_STYLES)[number];
 
-export const TOOL_FILTERING_MODES = ["allowed", "all-except-blocked", "all"] as const;
-export type ToolFilteringMode = (typeof TOOL_FILTERING_MODES)[number];
-
-export const MODEL_SELECTION_MODES = [
-  "pick-first-available",
-  "pick-first-scoped",
-  "use-current",
-] as const;
-export type ModelSelectionMode = (typeof MODEL_SELECTION_MODES)[number];
-
 /** Legacy booleans mean all/none; arrays pin the selected canonical file paths. */
 export type SubagentExtensionSelection = boolean | string[];
 
@@ -51,7 +41,6 @@ export function settingsValueEqual(a: unknown, b: unknown): boolean {
 
 export interface ManagerSettings {
   subagentMode: SubagentMode;
-  toolFiltering: ToolFilteringMode;
   widgetMode: WidgetMode;
   costDisplay: CostDisplayMode;
   costValue: CostValue;
@@ -68,16 +57,13 @@ export interface ManagerSettings {
   maxLevels: number;
   maxConcurrent: number;
   maxThreads: number;
-  modelSelection: ModelSelectionMode;
 }
 
 export const DEFAULT_MANAGER_SETTINGS: ManagerSettings = {
   maxLevels: 3,
   maxConcurrent: 16,
   maxThreads: 64,
-  modelSelection: "pick-first-scoped",
   subagentMode: "opportunistic",
-  toolFiltering: "allowed",
   widgetMode: "full",
   costDisplay: "pi-footer-status",
   costValue: "subagents",
@@ -97,8 +83,14 @@ export const isHousekeepingModel = (value: unknown): value is string =>
   typeof value === "string" && (value === "" || HOUSEKEEPING_MODEL.test(value));
 
 const KEYS = [
-  "maxLevels", "maxConcurrent", "maxThreads", "modelSelection", "subagentMode", "toolFiltering", "widgetMode", "costDisplay", "costValue", "costIcon", "nerdFontIcons", "loaderStyle", "finalRecap", "subagentExtensions", "checklistIntegration", "housekeepingEnabled", "housekeepingModel",
+  "maxLevels", "maxConcurrent", "maxThreads", "subagentMode", "widgetMode", "costDisplay", "costValue", "costIcon", "nerdFontIcons", "loaderStyle", "finalRecap", "subagentExtensions", "checklistIntegration", "housekeepingEnabled", "housekeepingModel",
 ] as const;
+/**
+ * Keys removed when agent definitions moved into code. Existing settings files
+ * may still carry them; they are ignored instead of failing the whole layer, so
+ * an upgrade never bricks a user's settings.
+ */
+const LEGACY_KEYS = new Set(["toolFiltering", "modelSelection", "scopedModelFiltering"]);
 const MAX_LEVELS = 32;
 
 function errorCode(error: unknown): string | undefined {
@@ -144,9 +136,6 @@ function requirement(key: (typeof KEYS)[number]): string {
   if (key === "costValue") return "costValue must be subagents or total";
   if (key === "costIcon") return "costIcon must be money, coins or wallet";
   if (key === "loaderStyle") return `loaderStyle must be one of: ${LOADER_STYLES.join(", ")}`;
-  if (key === "toolFiltering") return "toolFiltering must be allowed, all-except-blocked or all";
-  if (key === "modelSelection")
-    return "modelSelection must be pick-first-available, pick-first-scoped or use-current";
   return `${key} must be a positive safe integer`;
 }
 
@@ -163,16 +152,10 @@ function parseSettings(content: string): Partial<ManagerSettings> {
   }
   const record = parsed as Record<string, unknown>;
   for (const key of Object.keys(record)) {
-    if (!isSupportedKey(key) && key !== "scopedModelFiltering")
+    if (!isSupportedKey(key) && !LEGACY_KEYS.has(key))
       throw new Error(`Unknown settings key: ${key}`);
   }
   const layer: Partial<ManagerSettings> = {};
-  if (Object.hasOwn(record, "scopedModelFiltering")) {
-    if (typeof record.scopedModelFiltering !== "boolean")
-      throw new Error("scopedModelFiltering must be a boolean");
-    if (!Object.hasOwn(record, "modelSelection"))
-      layer.modelSelection = record.scopedModelFiltering ? "pick-first-scoped" : "pick-first-available";
-  }
   for (const key of KEYS) {
     if (!Object.hasOwn(record, key)) continue;
     const value = record[key];
@@ -198,12 +181,6 @@ function parseSettings(content: string): Partial<ManagerSettings> {
       layer.subagentMode = value as SubagentMode;
       continue;
     }
-    if (key === "toolFiltering") {
-      if (!TOOL_FILTERING_MODES.includes(value as ToolFilteringMode))
-        throw new Error(requirement(key));
-      layer.toolFiltering = value as ToolFilteringMode;
-      continue;
-    }
     if (key === "widgetMode") {
       if (!WIDGET_MODES.includes(value as WidgetMode)) throw new Error(requirement(key));
       layer.widgetMode = value as WidgetMode;
@@ -227,12 +204,6 @@ function parseSettings(content: string): Partial<ManagerSettings> {
     if (key === "loaderStyle") {
       if (!LOADER_STYLES.includes(value as LoaderStyle)) throw new Error(requirement(key));
       layer.loaderStyle = value as LoaderStyle;
-      continue;
-    }
-    if (key === "modelSelection") {
-      if (!MODEL_SELECTION_MODES.includes(value as ModelSelectionMode))
-        throw new Error(requirement(key));
-      layer.modelSelection = value as ModelSelectionMode;
       continue;
     }
     if (!positiveSafeInteger(value)) throw new Error(requirement(key));

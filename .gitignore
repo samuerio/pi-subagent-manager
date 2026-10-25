@@ -6,7 +6,8 @@ coverage/
 # Local investigation and implementation plans
 /.agents/plans/
 
-# Local subagent harness settings (not agent type definitions)
+# Local runtime state written by pi (loop jobs, harness settings)
+/.pi/loop-tasks.json
 .pi/subagents.json
 
 # Keep this plugin's settings global, not committed per project

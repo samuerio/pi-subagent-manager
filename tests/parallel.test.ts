@@ -4,6 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { testSpec } from "./helpers/spec.ts";
 import { ThreadManager } from "../src/orch/manager.ts";
 import { DEFAULT_MANAGER_SETTINGS } from "../src/prefs/settings.ts";
 import type { ManagerOptions } from "../src/types.ts";
@@ -14,7 +15,7 @@ function fixture(t: TestContext, options: Partial<ManagerOptions> = {}) {
   const running = new Map<string, () => void>();
   const manager = new ThreadManager({
     rootSnapshot: () => [],
-    getType: (name) => ({ name, description: "Test coordinator", systemPrompt: "Coordinate" }),
+    getType: (name) => testSpec(name, { description: "Test coordinator", systemPrompt: "Coordinate" }),
     toolsFor: () => [],
     createDriver: async ({ path }) => ({
       prompt: async () => {
@@ -97,7 +98,7 @@ const spawnPair = (names: string[]): AssistantMessage => ({
   content: names.map((path) => ({
     type: "toolCall",
     id: `spawn-${path}`,
-    name: "agent_spawn",
+    name: "coordinator_spawn",
     arguments: { path, type: "coordinator", task: "Coordinate", wait: true },
   })),
 });
@@ -117,10 +118,13 @@ test("real SDK same-turn foreground spawns overlap at L2 and L3", { timeout: 150
   try {
     await withOfflineHarness(
       {
-        agentFiles: {
-          coordinator:
-            "---\nname: coordinator\ndescription: Offline coordinator\ntools:\n  allow: [agent_spawn, agent_wait]\n---\nCoordinate independent tasks.\n",
-        },
+        specs: [
+          testSpec("coordinator", {
+            description: "Offline coordinator",
+            tools: ["coordinator_spawn", "agent_wait"],
+            systemPrompt: "Coordinate independent tasks.",
+          }),
+        ],
         async onRequest(request) {
           if (request.pathCall !== 1) return answer("coordinated");
           if (request.path === null) {
@@ -159,9 +163,7 @@ test("real SDK same-turn foreground spawns overlap at L2 and L3", { timeout: 150
 test("extension reload applies manager settings without reopening the parent", async () => {
   await withOfflineHarness(
     {
-      agentFiles: {
-        coordinator: "---\nname: coordinator\ndescription: Coordinator\n---\nCoordinate.\n",
-      },
+      specs: [testSpec("coordinator", { description: "Coordinator", systemPrompt: "Coordinate." })],
       managerSettings: { maxLevels: 1 },
       onRequest: () => answer("completed"),
     },
@@ -169,9 +171,8 @@ test("extension reload applies manager settings without reopening the parent", a
       const root = SessionManager.create(cwd);
       const session = await open(root);
       const spawn = () =>
-        tool<{ state: string }>(session, "agent_spawn", {
+        tool<{ state: string }>(session, "coordinator_spawn", {
           path: "a",
-          type: "coordinator",
           task: "Work",
           wait: true,
         });

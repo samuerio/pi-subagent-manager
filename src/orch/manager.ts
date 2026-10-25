@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
   AgentDriver,
-  AgentType,
+  AgentSpec,
   DriverOptions,
   ManagerOptions,
   SavedThread,
@@ -20,7 +20,7 @@ import { DEFAULT_MANAGER_SETTINGS, type ManagerSettings } from "../prefs/setting
 
 interface Record {
   view: ThreadView;
-  definition: AgentType;
+  definition: AgentSpec;
   inherited: AgentMessage[];
   contextReady?: Promise<void>;
   contextPending?: boolean;
@@ -53,6 +53,30 @@ interface Record {
   recentActivity?: string[];
 }
 const RECENT_ACTIVITY_LIMIT = 12;
+/**
+ * A saved registry may predate a schema change (older versions stored a richer,
+ * file-based definition). Fill the fields the driver requires so a restored
+ * thread resumes instead of crashing on `undefined` tools; when the same agent
+ * still exists, its current allowlist and role apply.
+ */
+function normalizeSavedSpec(
+  stored: Partial<AgentSpec> | undefined,
+  fallback: (name: string) => AgentSpec | undefined,
+): AgentSpec {
+  const name = typeof stored?.name === "string" && stored.name ? stored.name : "unknown";
+  const live = fallback(name);
+  return {
+    name,
+    description: stored?.description ?? live?.description ?? name,
+    systemPrompt: stored?.systemPrompt ?? live?.systemPrompt ?? "",
+    tools: Array.isArray(stored?.tools) ? [...stored.tools] : (live?.tools ?? []),
+    skills: Array.isArray(stored?.skills) ? [...stored.skills] : (live?.skills ?? []),
+    role: stored?.role ?? live?.role ?? "subagents",
+    ...(stored?.color ?? live?.color ? { color: stored?.color ?? live?.color } : {}),
+    ...(stored?.icon ?? live?.icon ? { icon: stored?.icon ?? live?.icon } : {}),
+  };
+}
+
 const active = (view: Pick<ThreadView, "state">) =>
   view.state === "starting" || view.state === "running";
 export const MIN_SPAWN_TIMEOUT_MS = 30_000;
@@ -272,7 +296,13 @@ export class ThreadManager {
       }
       restored.set(path, {
         view,
-        definition: structuredClone(item.definition),
+        definition: normalizeSavedSpec(item.definition, (name) => {
+          try {
+            return this.options.getType(name);
+          } catch {
+            return undefined;
+          }
+        }),
         inherited: structuredClone(item.inherited ?? []),
         // A reservation saved before its lexical parent opened has no snapshot yet.
         contextPending: !view.sessionFile && item.inherited === undefined && view.parent !== null,
@@ -308,7 +338,7 @@ export class ThreadManager {
     const path = canonicalPath(args.path, caller);
     this.assertAccess(caller, path);
     if (path === "/root" || this.records.has(path))
-      throw new Error(`Thread ${path} already exists; use agent_steer to resume it`);
+      throw new Error(`Thread ${path} already exists; resume it with agent_steer`);
     const parent = parentPath(path);
     if (parent && parent !== "/root") this.record(parent);
     if (caller !== "/root" && parent !== caller)

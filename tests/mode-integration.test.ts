@@ -5,6 +5,7 @@ import test from "node:test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { withOfflineHarness } from "./helpers/integrationHarness.ts";
+import { testSpec } from "./helpers/spec.ts";
 import { subagentPrompt } from "../src/orch/prompt.ts";
 import { DEFAULT_MANAGER_SETTINGS } from "../src/prefs/settings.ts";
 
@@ -30,7 +31,7 @@ const answer = (text: string): AssistantMessage => ({
   },
 });
 const workerSystemPrompt = "Execute your assigned task.";
-const worker = `---\nname: worker\ndescription: Execute work\n---\n${workerSystemPrompt}\n`;
+const worker = testSpec("worker", { description: "Execute work", systemPrompt: workerSystemPrompt });
 
 for (const earlyChildren of [2, 1, 0]) {
   test(`async completions wake the root after its answer, with ${earlyChildren} of two children finishing before it`, { timeout: 15000 }, async () => {
@@ -40,7 +41,7 @@ for (const earlyChildren of [2, 1, 0]) {
     const childResults = [0, 1].map((i) => new Promise<AssistantMessage>((resolve) => { finishes[i] = resolve; }));
     let rootCalls = 0;
     await withOfflineHarness({
-      agentFiles: { worker: "---\nname: worker\ndescription: Execute work\ntools:\n  allow: [agent_update]\n---\nExecute your assigned task.\n" },
+      specs: [testSpec("worker", { description: "Execute work", tools: ["agent_update"], systemPrompt: "Execute your assigned task." })],
       onRequest(request) {
         if (request.path) {
           const i = Number(request.path.at(-1));
@@ -55,7 +56,7 @@ for (const earlyChildren of [2, 1, 0]) {
         rootCalls++;
         if (rootCalls === 1) return {
           ...answer(""), stopReason: "toolUse",
-          content: [0, 1].map((i) => ({ type: "toolCall" as const, id: `spawn-${i}`, name: "agent_spawn", arguments: {
+          content: [0, 1].map((i) => ({ type: "toolCall" as const, id: `spawn-${i}`, name: "worker_spawn", arguments: {
             path: `worker-${i}`, type: "worker", task: `Run parallel task ${i}`, wait: false,
           } })),
         };
@@ -119,7 +120,7 @@ for (const earlyChildren of [2, 1, 0]) {
 
 test("real SDK off hides all agent tools, including discovery, and leaves the prompt untouched", { timeout: 15000 }, async () => {
   await withOfflineHarness({
-    agentFiles: { worker },
+    specs: [worker],
     managerSettings: { subagentMode: "off" },
     builtinTools: true,
     onRequest(request) {
@@ -143,7 +144,7 @@ test("real SDK off hides all agent tools, including discovery, and leaves the pr
 
 test("real SDK mode changes update tool visibility and prompt on reload without disabling other tools", { timeout: 15000 }, async () => {
   await withOfflineHarness({
-    agentFiles: { worker },
+    specs: [worker],
     managerSettings: { subagentMode: "opportunistic" },
     builtinTools: true,
     onRequest: () => answer("done"),
@@ -156,22 +157,23 @@ test("real SDK mode changes update tool visibility and prompt on reload without 
     const initialGuidance = `\n\n${subagentPrompt(DEFAULT_MANAGER_SETTINGS)}`;
     assert.ok(initialSystem.endsWith(initialGuidance));
     const baseSystem = initialSystem.slice(0, -initialGuidance.length);
-    const stale = session.getToolDefinition("agent_spawn")!;
-    const otherTools = session.getActiveToolNames().filter((name) => !name.startsWith("agent_"));
+    const stale = session.getToolDefinition("worker_spawn")!;
+    const isSubagentTool = (name: string) => name.startsWith("agent_") || name.endsWith("_spawn");
+    const otherTools = session.getActiveToolNames().filter((name) => !isSubagentTool(name));
     for (const mode of ["off", "orchestration", "off", "opportunistic"] as const) {
       await writeFile(join(directory, "subagent-manager", "settings.json"), JSON.stringify({ subagentMode: mode }));
       await reload.handler("reload", session.extensionRunner.createCommandContext());
       const enabled = mode !== "off";
-      assert.equal(session.getActiveToolNames().includes("agent_spawn"), enabled);
-      assert.equal(session.getCallableToolNames().includes("agent_spawn"), enabled);
-      assert.equal(session.getAllTools().some((tool) => tool.name === "agent_spawn" && tool.exposure !== "hidden"), enabled);
-      assert.deepEqual(session.getActiveToolNames().filter((name) => !name.startsWith("agent_")), otherTools);
+      assert.equal(session.getActiveToolNames().includes("worker_spawn"), enabled);
+      assert.equal(session.getCallableToolNames().includes("worker_spawn"), enabled);
+      assert.equal(session.getAllTools().some((tool) => tool.name === "worker_spawn" && tool.exposure !== "hidden"), enabled);
+      assert.deepEqual(session.getActiveToolNames().filter((name) => !isSubagentTool(name)), otherTools);
       if (!enabled) {
         assert.throws(() => stale.execute("stale", {}, undefined, undefined, session.extensionRunner.createToolContext("stale", undefined)), /Subagent Mode is off/);
       }
       await session.prompt(`Task after switching to ${mode}`);
       const request = requests.at(-1)!;
-      assert.equal(request.toolNames.includes("agent_spawn"), enabled);
+      assert.equal(request.toolNames.includes("worker_spawn"), enabled);
       const guidance = subagentPrompt({ ...DEFAULT_MANAGER_SETTINGS, subagentMode: mode });
       if (guidance) assert.ok(JSON.parse(request.system).endsWith(`\n\n${guidance}`));
       else assert.equal(JSON.parse(request.system), baseSystem);
@@ -184,13 +186,14 @@ test("off keeps running work but suppresses its notifications until re-enabled",
   let finish!: (message: AssistantMessage) => void;
   const workerResult = new Promise<AssistantMessage>((resolve) => { finish = resolve; });
   await withOfflineHarness({
-    agentFiles: { worker },
+    specs: [worker],
+    managerSettings: {},
     onRequest(request) {
       if (request.path) return workerResult;
       if (request.pathCall === 1) return {
         ...answer(""), stopReason: "toolUse",
-        content: [{ type: "toolCall", id: "background", name: "agent_spawn", arguments: {
-          path: "background", type: "worker", task: "Finish retained work", wait: false,
+        content: [{ type: "toolCall", id: "background", name: "worker_spawn", arguments: {
+          path: "background", task: "Finish retained work", wait: false,
         } }],
       };
       return answer("Assigned work");
@@ -221,13 +224,14 @@ test("streaming notifications stay in the mailbox, do not duplicate on reload, a
   const workerResult = new Promise<AssistantMessage>((resolve) => { finishWorker = resolve; });
   const rootResult = new Promise<AssistantMessage>((resolve) => { finishRoot = resolve; });
   await withOfflineHarness({
-    agentFiles: { worker },
+    specs: [worker],
+    managerSettings: {},
     onRequest(request) {
       if (request.path) return workerResult;
       if (request.pathCall === 1) return {
         ...answer(""), stopReason: "toolUse",
-        content: [{ type: "toolCall", id: "streaming", name: "agent_spawn", arguments: {
-          path: "background", type: "worker", task: "Finish during root streaming", wait: false,
+        content: [{ type: "toolCall", id: "streaming", name: "worker_spawn", arguments: {
+          path: "background", task: "Finish during root streaming", wait: false,
         } }],
       };
       return rootResult;
@@ -269,13 +273,13 @@ test("enabled streaming mailbox is delivered once at agent settlement and wakes 
   let finishRoot!: (message: AssistantMessage) => void;
   const rootResult = new Promise<AssistantMessage>((resolve) => { finishRoot = resolve; });
   await withOfflineHarness({
-    agentFiles: { worker },
+    specs: [worker],
     onRequest(request) {
       if (request.path) return answer("Worker result");
       if (request.pathCall === 1) return {
         ...answer(""), stopReason: "toolUse",
-        content: [{ type: "toolCall", id: "settled", name: "agent_spawn", arguments: {
-          path: "background", type: "worker", task: "Finish while root works", wait: false,
+        content: [{ type: "toolCall", id: "settled", name: "worker_spawn", arguments: {
+          path: "background", task: "Finish while root works", wait: false,
         } }],
       };
       return rootResult;
@@ -303,7 +307,7 @@ await waitFor(() => requests.filter((request) => !request.path).length >= 3, "no
 
 test("orchestration restricts /root's prompt, not the child worker's prompt", { timeout: 15000 }, async () => {
   await withOfflineHarness({
-    agentFiles: { worker },
+    specs: [worker],
     managerSettings: { subagentMode: "orchestration" },
     onRequest(request) {
       if (request.path) {
@@ -312,8 +316,8 @@ test("orchestration restricts /root's prompt, not the child worker's prompt", { 
       if (request.pathCall === 1) return {
         ...answer(""),
         stopReason: "toolUse",
-        content: [{ type: "toolCall", id: "delegate", name: "agent_spawn", arguments: {
-          path: "task", type: "worker", task: "Execute a small sequential task", wait: true,
+        content: [{ type: "toolCall", id: "delegate", name: "worker_spawn", arguments: {
+          path: "task", task: "Execute a small sequential task", wait: true,
         } }],
       };
       return answer("Synthesized worker result");

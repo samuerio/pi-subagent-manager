@@ -13,10 +13,10 @@ import {
   type HousekeepingOptions,
 } from "../src/orch/housekeeping.ts";
 import { toolArgumentSnippet } from "../src/orch/runtime.ts";
+import { testSpec } from "./helpers/spec.ts";
 import { ThreadManager } from "../src/orch/manager.ts";
 import type {
   AgentDriver,
-  AgentType,
   DriverOptions,
   ThreadActivity,
   ThreadEvent,
@@ -710,7 +710,7 @@ test("accounting and cost-refresh failures do not break successful summaries", a
 
 // --- manager integration --------------------------------------------------------------------
 
-const workerType: AgentType = { name: "worker", description: "test", systemPrompt: "child prompt" };
+const workerType = testSpec();
 
 function managerHarness(onActivity?: (a: ThreadActivity) => void) {
   const events: ThreadEvent[] = [];

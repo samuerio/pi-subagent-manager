@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, JsonObject } from "@earendil-works/pi-ai";
 import { withOfflineHarness } from "./helpers/integrationHarness.ts";
+import { testSpec } from "./helpers/spec.ts";
 
 function reply(name?: string, args: JsonObject = {}): AssistantMessage {
   return {
@@ -25,8 +26,7 @@ function reply(name?: string, args: JsonObject = {}): AssistantMessage {
   };
 }
 
-for (const mode of ["all", "all-except-blocked", "allowed"] as const) {
-  test(`root extension/MCP tools and child-local codemode honor ${mode}`, { timeout: 30000 }, async () => {
+test("root extension/MCP tools and child-local codemode honor the spec allowlist", { timeout: 30000 }, async () => {
     const calls: string[] = [];
     const checkedByRoot: string[] = [];
     let preparationCount = 0;
@@ -66,22 +66,19 @@ for (const mode of ["all", "all-except-blocked", "allowed"] as const) {
         });
       }
       pi.on("tool_call", (event, ctx) => {
-        if (event.toolName === "agent_spawn") spawnSignal = ctx.signal;
+        if (event.toolName === "worker_spawn") spawnSignal = ctx.signal;
         if (event.toolName.startsWith("mcp__") || event.toolName === "extension_echo") {
           checkedByRoot.push(event.toolName);
           if (event.toolName === "mcp__test__denied") return { block: true, reason: "Root permission denied" };
         }
       });
     };
-    const broad = mode !== "allowed";
     const script = `
 const names = ALL_TOOLS.map(t => t.name);
 if (names.includes("hidden_secret")) throw new Error("hidden tool leaked");
-if (names.includes("mcp__test__blocked") !== ${mode === "all"}) throw new Error("block policy leaked");
-if (names.includes("mcp__test__lookup") !== ${broad}) throw new Error("allow policy leaked");
+if (names.includes("mcp__test__blocked")) throw new Error("unlisted tool leaked");
 const echo = await tools.extension_echo({value: "child-value"});
 if (echo.value !== "child-value-prepared") throw new Error("structured result or argument preparation lost");
-${broad ? `
 const namespace = describeNamespace("mcp__test");
 text(namespace);
 text(searchTools("lookup"));
@@ -91,19 +88,27 @@ const error = await tools.mcp__test__lookup({value: "structured-error"});
 if (!error.isError || error.value !== "structured-error") throw new Error("structured error lost");
 let denied = false;
 try { await tools.mcp__test__denied({}); } catch (e) { denied = String(e).includes("Root permission denied"); }
-if (!denied) throw new Error("root permission hook bypassed");` : ""}
+if (!denied) throw new Error("root permission hook bypassed");
 text("CHILD_TOOL_PARITY_OK");`;
     await withOfflineHarness({
-      managerSettings: { toolFiltering: mode },
-      agentFiles: { worker: "---\nname: worker\ndescription: Tool inheritance\ntools:\n  allow: [codemode, extension_echo]\n  block: [mcp__test__blocked]\n---\nTest tools.\n" },
+      specs: [
+        testSpec("worker", {
+          description: "Tool inheritance",
+          // mcp__test__blocked is deliberately absent: an allowlist has no block list.
+          tools: ["codemode", "extension_echo", "mcp__test__lookup", "mcp__test__denied", "worker_spawn"],
+          systemPrompt: "Test tools.",
+        }),
+      ],
       extensionFactories: [external, createCodemodeExtension(), createToolSearchExtension()],
       onRequest(request) {
         if (!request.path) return request.pathCall === 1
-          ? reply("agent_spawn", { path: "probe", type: "worker", task: "Test", wait: true }) : reply();
+          ? reply("worker_spawn", { path: "probe", task: "Test", wait: true }) : reply();
         if (request.pathCall === 1) {
           assert.ok(request.toolNames.includes("codemode"));
           assert.ok(request.toolNames.includes("extension_echo"));
-          assert.ok(!request.toolNames.includes("mcp__test__lookup"), "deferred tools stay out of model declarations");
+          // An explicit allowlist entry is intent: the inherited tool becomes active.
+          assert.ok(request.toolNames.includes("mcp__test__lookup"));
+          assert.ok(!request.toolNames.includes("mcp__test__blocked"), "unlisted tool stays out");
           assert.ok(!request.toolNames.includes("hidden_secret"));
           return reply("codemode", { code: script });
         }
@@ -117,18 +122,27 @@ text("CHILD_TOOL_PARITY_OK");`;
       await session.prompt("Check child tool inheritance");
       assert.ok(requests.some((request) => request.path === "/root/probe" && request.pathCall === 2));
       assert.equal(preparationCount, 1);
-      assert.deepEqual(calls, broad ? ["extension_echo", "mcp__test__lookup", "mcp__test__lookup"] : ["extension_echo"]);
-      assert.deepEqual(checkedByRoot, broad ? ["extension_echo", "mcp__test__lookup", "mcp__test__lookup", "mcp__test__denied"] : ["extension_echo"]);
+      assert.deepEqual(calls, ["extension_echo", "mcp__test__lookup", "mcp__test__lookup"]);
+      assert.deepEqual(checkedByRoot, [
+        "extension_echo",
+        "mcp__test__lookup",
+        "mcp__test__lookup",
+        "mcp__test__denied",
+      ]);
       assert.deepEqual(errors, []);
     });
-  });
-}
+});
 
 test("detached children and grandchildren inherit tools while unsafe model-only forwarding fails closed", { timeout: 30000 }, async () => {
   const seen: string[] = [];
   await withOfflineHarness({
-    managerSettings: { toolFiltering: "all" },
-    agentFiles: { worker: "---\nname: worker\ndescription: Detached tool inheritance\n---\nTest tools.\n" },
+    specs: [
+      testSpec("worker", {
+        description: "Detached tool inheritance",
+        tools: ["worker_spawn", "agent_wait", "agent_update", "external_ping", "model_only_context"],
+        systemPrompt: "Test tools.",
+      }),
+    ],
     extensionFactories: [
       createCodemodeExtension(),
       (pi) => {
@@ -151,10 +165,10 @@ test("detached children and grandchildren inherit tools while unsafe model-only 
     ],
     onRequest(request) {
       if (!request.path) return request.pathCall === 1
-        ? reply("agent_spawn", { path: "detached", type: "worker", task: "Test", wait: false }) : reply();
+        ? reply("worker_spawn", { path: "detached", task: "Test", wait: false }) : reply();
       assert.ok(request.toolNames.includes("model_only_context"));
       if (request.path === "/root/detached") {
-        if (request.pathCall === 1) return reply("agent_spawn", { path: "nested", type: "worker", task: "Test", wait: true });
+        if (request.pathCall === 1) return reply("worker_spawn", { path: "nested", task: "Test", wait: true });
         assert.match(request.messagesText, /"path":"\/root\/detached\/nested"/);
         return reply();
       }

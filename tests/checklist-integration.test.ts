@@ -15,7 +15,6 @@ import {
 } from "../src/orch/checklist-integration.ts";
 import { subagentPrompt } from "../src/orch/prompt.ts";
 import { DEFAULT_MANAGER_SETTINGS, type ManagerSettings } from "../src/prefs/settings.ts";
-import { markImportOffered } from "../src/prefs/agent-import.ts";
 
 const CHECKLIST_ENTRY = "pi-checklist";
 const snapshot = (metaEnabled: unknown) => ({ v: 1, checklist: { tasks: [] }, metaEnabled });
@@ -262,7 +261,6 @@ async function withExtension(
   mkdirSync(join(dir, "subagent-manager"), { recursive: true });
   writeFileSync(join(dir, "subagent-manager", "settings.json"), JSON.stringify(options.settings));
   if (options.prefs !== undefined) writeFileSync(join(dir, "pi-checklist.json"), JSON.stringify(options.prefs));
-  markImportOffered(dir);
   const file = installPackage(dir, "ext", { name: "pi-checklist", version: options.version ?? "3.0.0" });
   const toolList = (options.tools ?? ((f) => checklistTools(f)))(file);
   const session = SessionManager.inMemory(dir);

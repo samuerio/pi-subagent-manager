@@ -1,8 +1,8 @@
 import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ThreadManager } from "./manager.ts";
-import { ModelPreferenceError } from "../prefs/models.ts";
-import type { AgentType, ResolvedAgentSettings, ThreadView } from "../types.ts";
+import { listAgentSpecs, spawnToolName } from "../agents/specs.ts";
+import type { AgentSpec, ThreadView } from "../types.ts";
 
 const path = Type.String({ description: "Absolute agent path, or name relative to the caller" });
 const text = Type.String({ minLength: 1 });
@@ -18,13 +18,44 @@ function result(value: unknown) {
   };
 }
 
-/** All threads see the same verbs, with caller identity bound by closure, never model input. */
-export function agentTools(
-  getManager: () => ThreadManager,
-  caller: string,
-  getTypes: () => AgentType[],
-  resolveSettings: (type: AgentType) => ResolvedAgentSettings,
-): ToolDefinition[] {
+/**
+ * Spawn parameters shared by every spawn verb. There is no `type` field: the tool
+ * name IS the agent, so the model cannot pick a spec that its own allowlist
+ * excluded.
+ */
+const SpawnParams = Type.Object({
+  path: Type.String({
+    description:
+      "Task-based kebab-case path (e.g. /root/controller-security-research), or a task name relative to the caller",
+  }),
+  task: text,
+  wait: Type.Optional(Type.Boolean()),
+  timeoutMs: Type.Optional(
+    Type.Integer({
+      minimum: 30000,
+      maximum: 300000,
+      description:
+        "Optional report-only timeout, 30000–300000 ms (30s–5min). If the child is still running after this many ms, a status event is sent to you; the child keeps running.",
+    }),
+  ),
+});
+
+/**
+ * The spawn description is the spec's own description plus the shared mechanics,
+ * because there is no agent_types tool to discover capabilities at runtime.
+ */
+function spawnDescription(spec: AgentSpec, toolName: string): string {
+  return `${spec.description}
+
+Spawns a \`${spec.name}\` child. The lexical parent, NOT the caller, supplies a context snapshot: /root is the main thread, and an independent root (/task) has no inherited context. Foreground waits by default; wait:false runs detached, and when it completes, fails or is stopped you receive a message event that wakes you, so do not poll. Optional timeoutMs (30000–300000): if the child is still running after that many ms you receive an event with its status, elapsed, tokens and recent output; the child is NOT stopped. For parallel work, spawn every independent sibling with wait:false before calling agent_wait. Existing paths are retained; resume them with agent_steer rather than ${toolName}.`;
+}
+
+/**
+ * All threads see the same verbs, with caller identity bound by closure, never
+ * model input. Spawn verbs are generated from the spec table so adding an agent
+ * never touches this file.
+ */
+export function agentTools(getManager: () => ThreadManager, caller: string): ToolDefinition[] {
   const threads = () => getManager().scope(caller);
   const make = (
     name: string,
@@ -38,69 +69,14 @@ export function agentTools(
     parameters,
     execute: async (_id, params, signal) => execute(params, signal),
   });
+  const spawnTools = listAgentSpecs().map((spec) => {
+    const toolName = spawnToolName(spec.name);
+    return make(toolName, spawnDescription(spec, toolName), SpawnParams, async (params, signal) =>
+      result(compact(await threads().spawn({ ...params, type: spec.name }, signal))),
+    );
+  });
   return [
-    make(
-      "agent_types",
-      "List agent names, descriptions, resolved models and thinking levels for new children of this caller. Reflects current configuration; call before choosing a type. Other parent paths may inherit different settings.",
-      Type.Object({}),
-      () => {
-        const entries = getTypes().map((type) => {
-          const { name, description } = type;
-          try {
-            return { name, description, ...resolveSettings(type) };
-          } catch (error) {
-            return {
-              name,
-              description,
-              error:
-                error instanceof ModelPreferenceError
-                  ? error.summary
-                  : error instanceof Error
-                    ? error.message
-                    : String(error),
-            };
-          }
-        });
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text:
-                entries
-                  .map((entry) =>
-                    "error" in entry
-                      ? `${entry.name} (unavailable): ${entry.description}\n  ${entry.error}`
-                      : `${entry.name} (${entry.model}, thinking: ${entry.thinkingLevel}): ${entry.description}`,
-                  )
-                  .join("\n") || "No agent types available.",
-            },
-          ],
-          details: entries,
-        };
-      },
-    ),
-    make(
-      "agent_spawn",
-      "Spawn a named child. The lexical parent, NOT the caller, supplies a context snapshot. /root is the main thread; independent roots have no inherited context. Foreground waits by default; wait:false runs detached: when it completes, fails or is stopped, you receive a message event that wakes you, so do not poll. Optional timeoutMs (30000–300000; none if unset): if the child is still running after that many ms you receive an event with its status, elapsed time, tokens and recent output (the child is NOT stopped; you decide whether to wait, steer, stop it or re-arm with agent_steer timeoutMs). For parallel work, spawn every independent sibling with wait:false before calling agent_wait; child agents with delegation tools should do the same. Existing paths are retained and can be resumed with agent_steer. Use agent_types to discover current types.",
-      Type.Object({
-        path: Type.String({
-          description:
-            "Task-based kebab-case path, not the agent type (e.g. /root/controller-security-research), or a task name relative to the caller",
-        }),
-        type: text,
-        task: text,
-        wait: Type.Optional(Type.Boolean()),
-        timeoutMs: Type.Optional(
-          Type.Integer({
-            minimum: 30000,
-            maximum: 300000,
-            description:
-              "Optional report-only timeout, 30000–300000 ms (30s–5min). If the child is still running after this many ms, a status event is sent to you; the child keeps running.",
-          }),
-        ),
-      }),
-      async (params, signal) => result(compact(await threads().spawn(params, signal))),
-    ),
+    ...spawnTools,
     make(
       "agent_wait",
       "Wait for a descendant to complete, fail, stop or pause. Paused means no final answer handback. Cancellation/timeouts do not stop the child; poll status or wait again.",

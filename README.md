@@ -24,30 +24,31 @@ pi install npm:pi-subagent-manager
 
 Ask pi to delegate in plain language:
 
-> Have a reviewer check my last commit while a researcher looks up how this repo handles retries.
+> Have an oracle review my last commit while a finder looks up how this repo handles retries.
 
 Or start an agent yourself:
 
 ```text
-/agents fork:coder fix the failing auth test
+/agents fork:task fix the failing auth test
 ```
 
 `fork:` includes your current conversation. Use `fresh:` instead for a task that needs no conversation history.
 
 The **Agents** widget above the input shows what's running. Open `/agents tree`, select an agent, and press **Enter** to watch it. Type in the **Steer** input to give it more direction or resume it after it finishes. Results also return to the main agent.
 
-## Bundled agents
+## Built-in agents
 
-| Agent        | Use it for                              |
-| ------------ | --------------------------------------- |
-| `architect`  | Plans, tradeoffs, coordinating helpers   |
-| `coder`      | Implementation and debugging            |
-| `researcher` | Codebase and web research                |
-| `reviewer`   | Finding correctness and security issues  |
-| `tasker`     | Small jobs and quick lookups             |
-| `writer`     | Drafting and editing prose              |
+| Agent       | Tool               | Use it for                                              |
+| ----------- | ------------------ | ------------------------------------------------------- |
+| `task`      | `task_spawn`       | Implementation, debugging, and any delegatable work     |
+| `finder`    | `finder_spawn`     | Codebase search: behavior, call sites, patterns         |
+| `oracle`    | `oracle_spawn`     | Review, planning, architecture, deep reasoning          |
+| `librarian` | `librarian_spawn`  | Understanding repositories outside this workspace       |
 
-They use your current model until you configure preferences. Open `/agents types` to change a role's model, tools, or instructions, or [add your own agent](docs/custom-agents.md).
+Each spawn tool is one fixed agent, so there is no `type` to choose and no agent listing to fetch.
+All four are defined as code in [`src/agents/specs.ts`](src/agents/specs.ts): modify that file to change an
+agent's prompt, tool allowlist, skills, color, or icon. Models are not configured per agent; the active
+`modes.json` mode pins each role's provider, model and thinking level.
 
 ## Settings and safety
 
@@ -59,8 +60,7 @@ Agents share your working directory and OS permissions: **tool policies are not 
 
 - [Commands and navigation](docs/tools-and-ui.md#commands) — watching, steering, stopping, and keyboard shortcuts
 - [Settings](docs/settings.md) — models, tool access, limits, and experimental features
-- [Custom agents](docs/custom-agents.md) · [Bundled roles](docs/default-agents.md)
-- [Importing agents](docs/importing-agents.md) from other subagent packages
+- [Built-in agents](docs/default-agents.md) — prompts, tool allowlists, model roles
 - [Development](docs/development.md) · [Changelog](CHANGELOG.md)
 
 [MIT license](LICENSE)

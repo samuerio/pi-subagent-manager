@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { testSpec } from "./helpers/spec.ts";
 import { ThreadManager } from "../src/orch/manager.ts";
 import { TranscriptChannel } from "../src/orch/transcript.ts";
 import type {
   AgentDriver,
-  AgentType,
   DriverOptions,
   ManagerOptions,
   SavedThread,
@@ -21,7 +21,7 @@ const user = (text: string): AgentMessage => ({
 });
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const workerType: AgentType = { name: "worker", description: "test", systemPrompt: "child prompt" };
+const workerType = testSpec();
 
 /** A driver whose prompt records the message and blocks until `release()`. */
 function gated(overrides: Partial<AgentDriver> = {}) {
@@ -380,6 +380,45 @@ test("duplicate concurrent spawn is rejected and concurrency/depth limits apply"
   await manager.shutdown();
 });
 
+test("restoring a registry written by the file-based schema resumes with a usable spec", async () => {
+  const first = fixture();
+  await first.manager.spawn("/root", { path: "legacy", type: "worker", task: "work", wait: false });
+  await tick();
+  const saved = first.manager.saved();
+  await first.manager.shutdown();
+
+  // Older versions stored a Markdown-derived definition: no tools/skills/role.
+  const legacy = {
+    ...saved[0]!,
+    view: { ...saved[0]!.view, type: "architect" },
+    definition: {
+      name: "architect",
+      description: "Legacy planner",
+      systemPrompt: "Plan things.",
+      modelSuggestions: ["something"],
+    } as unknown as ReturnType<typeof testSpec>,
+  };
+  const second = fixture({
+    getType: () => {
+      throw new Error("architect was removed");
+    },
+  });
+  second.manager.restore([legacy]);
+  const restored = second.manager.saved()[0]!;
+  assert.equal(restored.definition.name, "architect");
+  assert.deepEqual(restored.definition.tools, []);
+  assert.deepEqual(restored.definition.skills, []);
+  assert.equal(restored.definition.role, "subagents");
+  assert.equal(restored.definition.systemPrompt, "Plan things.");
+  // Resuming re-creates the driver from the normalized spec instead of failing on undefined.
+  await second.manager.steer("/root", "legacy", "resume");
+  await tick();
+  assert.deepEqual(second.drivers.get("/root/legacy")!.options.type.tools, []);
+  second.drivers.get("/root/legacy")!.finish();
+  await second.manager.wait("/root", "legacy");
+  await second.manager.shutdown();
+});
+
 test("save/restore retains definition snapshot and reopens JSONL on resume", async () => {
   const first = fixture();
   await first.manager.spawn("/root", { path: "worker", type: "worker", task: "work", wait: false });
@@ -430,12 +469,10 @@ test("save/restore retains definition snapshot and reopens JSONL on resume", asy
 });
 
 test("retained thread resumes its saved definition even after the type is removed", async () => {
-  const original: AgentType = {
-    ...workerType,
+  const original = testSpec("worker", {
     description: "Legacy worker",
-    thinkingLevel: "low",
-    tools: { allow: ["read", "agent_update", "agent_pause"] },
-  };
+    tools: ["read", "agent_update", "agent_pause"],
+  });
   const first = fixture({ getType: () => original });
   await first.manager.spawn("/root", { path: "worker", type: "worker", task: "work", wait: false });
   await tick();

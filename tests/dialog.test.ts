@@ -14,7 +14,7 @@ import {
   type OverlayHandle,
   type Terminal,
 } from "@earendil-works/pi-tui";
-import { AGENT_COLORS, ConfigStore } from "../src/prefs/config.ts";
+import { AGENT_COLORS } from "../src/prefs/colors.ts";
 import {
   DIALOG_OPTIONS,
   DialogEditor,
@@ -547,8 +547,7 @@ for (const Renderer of [TuiMainScreen, TuiAltScreen]) {
     });
     let applied = 0;
     const running = configureAgents(ctx, {
-      store: new ConfigStore({ cwd: root, agentDir: root, includeProject: false }),
-      agentDir: root,
+        agentDir: root,
       settings: { ...DEFAULT_MANAGER_SETTINGS },
       apply: () => applied++,
     });
@@ -598,14 +597,13 @@ for (const Renderer of [TuiMainScreen, TuiAltScreen]) {
     await replaceField("33");
     assert.ok(notifications.some((message) => message.includes("at most 32")));
     await replaceField("5");
-    // The model chooser also reuses the overlay and preserves its bounds.
-    await selectRow("modelSelection");
+    // The widget-mode chooser also reuses the overlay and preserves its bounds.
+    await selectRow("widgetMode");
     await input("\r");
     await input(DOWN);
     await input("\r");
     await selectRow("maxLevels");
-    // A canceled field editor, a scope toggle and the nested definitions
-    // editor all remain inside the same outer overlay.
+    // A canceled field editor and a scope toggle remain inside the same outer overlay.
     await input("\r");
     await input(ESC);
     await selectRow("scope");
@@ -614,9 +612,6 @@ for (const Renderer of [TuiMainScreen, TuiAltScreen]) {
     assert.equal((tui.getFocusedComponent() as DialogSession).getComponent() instanceof DialogMenu, true);
     assert.equal(((tui.getFocusedComponent() as DialogSession).getComponent() as DialogMenu).getSelectedId(), "cancel");
     await input("\r");
-    await selectRow("types");
-    await input("\r");
-    await input(ESC);
     terminal.input(CTRL_S);
     await running;
     assert.deepEqual(stats, { opened: 1, closed: 1 });
@@ -631,8 +626,8 @@ for (const Renderer of [TuiMainScreen, TuiAltScreen]) {
       "orchestration",
     );
     assert.equal(
-      loadManagerSettings({ cwd: root, agentDir: root, includeProject: false }).settings.modelSelection,
-      "use-current",
+      loadManagerSettings({ cwd: root, agentDir: root, includeProject: false }).settings.widgetMode,
+      "minimal",
     );
   });
 

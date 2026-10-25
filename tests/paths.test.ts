@@ -56,7 +56,7 @@ test("context snapshots strip unfinished/orphaned tool exchanges and clone messa
     { role: "bashExecution", command: "echo", output: "keep shell", exitCode: 0, timestamp: 1 },
     assistant("Checking", [
       ["repeat", "read"],
-      ["pending", "agent_spawn"],
+      ["pending", "worker_spawn"],
     ]),
     result("repeat", "first result"),
     result("repeat", "duplicate orphan result"),

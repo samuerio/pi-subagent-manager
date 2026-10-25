@@ -21,7 +21,9 @@ import {
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import piSubagent from "../../src/index.ts";
-import type { SavedThread } from "../../src/types.ts";
+import { resetAgentSpecs, setAgentSpecs } from "../../src/agents/specs.ts";
+import { testSpec } from "./spec.ts";
+import type { AgentSpec, SavedThread } from "../../src/types.ts";
 import type { ManagerSettings } from "../../src/prefs/settings.ts";
 
 export const REGISTRY_ENTRY = "pi-subagent:registry:v1";
@@ -57,7 +59,12 @@ export const registry = (manager: SessionManager, fromId?: string) => {
 
 export async function withOfflineHarness(
   options: {
-    agentFiles: Record<string, string>;
+    /**
+     * Agent roster for the run. Defaults to one `worker` agent with the full
+     * manager control surface. Model routing comes from the modes.json pins the
+     * harness writes, so a spec never carries a model.
+     */
+    specs?: AgentSpec[];
     onRequest(request: LoggedRequest): AssistantMessage | Promise<AssistantMessage>;
     scopedModels?: string[];
     managerSettings?: Partial<ManagerSettings>;
@@ -83,18 +90,50 @@ export async function withOfflineHarness(
         JSON.stringify(options.managerSettings),
       );
     }
-    const agentsDir = path.join(directory, "subagent-manager", "agents");
-    await mkdir(agentsDir, { recursive: true });
-    for (const [name, content] of Object.entries(options.agentFiles)) {
-      await writeFile(path.join(agentsDir, `${name}.md`), content);
-    }
+    // Both roles pin the offline provider so spawns never consult the parent model.
+    await writeFile(
+      path.join(directory, "modes.json"),
+      JSON.stringify({
+        version: 1,
+        currentMode: "default",
+        modes: {
+          default: {
+            roles: {
+              main: { provider: "integration-test", modelId: "offline", thinkingLevel: "off" },
+              oracle: { provider: "integration-test", modelId: "offline", thinkingLevel: "off" },
+              subagents: { provider: "integration-test", modelId: "offline", thinkingLevel: "off" },
+            },
+          },
+        },
+      }),
+    );
+    setAgentSpecs(
+      options.specs ?? [
+        testSpec("worker", {
+          tools: [
+            "agent_update",
+            "agent_pause",
+            "agent_wait",
+            "agent_steer",
+            "agent_status",
+            "agent_output",
+            "agent_stop",
+            "worker_spawn",
+          ],
+        }),
+      ],
+    );
     const loaded = await discoverAndLoadExtensions(
       [fileURLToPath(new URL("../../src/index.ts", import.meta.url))],
       cwd,
       directory,
     );
     assert.deepEqual(loaded.errors, []);
-    assert.ok(loaded.extensions.some((extension) => extension.tools.has("agent_spawn")));
+    assert.ok(
+      loaded.extensions.some((extension) =>
+        [...extension.tools.keys()].some((name) => name.endsWith("_spawn")),
+      ),
+    );
 
     const runtime = await ModelRuntime.create({
       authPath: path.join(directory, "auth.json"),
@@ -224,7 +263,8 @@ export async function withOfflineHarness(
       assert.deepEqual(extensionsResult.errors, []);
       await session.bindExtensions({ mode: "print", onError: (error) => errors.push(error) });
       const enabled = options.managerSettings?.subagentMode !== "off";
-      assert.equal(session.getActiveToolNames().includes("agent_spawn"), enabled);
+      const spawnTools = session.getActiveToolNames().filter((name) => name.endsWith("_spawn"));
+      assert.equal(spawnTools.length > 0, enabled);
       assert.equal(
         session.getAllTools().some((tool) => tool.name === "agent_steer" && tool.exposure !== "hidden"),
         enabled,
@@ -260,6 +300,7 @@ export async function withOfflineHarness(
       await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
       session.dispose();
     }
+    resetAgentSpecs();
     if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previous;
     await rm(directory, { recursive: true, force: true });

@@ -17,7 +17,7 @@
 - A nested parent must already exist.
 - `/root` can address every tree. Children can spawn immediate children and address only their descendants.
 - Dot segments, URL escapes and ambiguous slash spellings are rejected.
-- Name paths after the **task** (`fix-auth`), not the type.
+- Name paths after the **task** (`fix-auth`), not the agent name.
 
 ## Context
 
@@ -26,7 +26,7 @@ A child starts from a snapshot of its **lexical parent** (the path one level up)
 - **Included:** conversation messages, custom messages, shell output.
 - **Excluded:** the parent's system prompt, unmatched tool calls/results.
 - **Frozen:** later parent turns don't change the child's context.
-- **Model/thinking:** inherited from the parent unless the type sets them.
+- **Model/thinking:** pinned by the `modes.json` role of the agent, never inherited from the parent.
 - **Independent roots** (`/k`) use the main session's model defaults but **none of its history**.
 
 ## States

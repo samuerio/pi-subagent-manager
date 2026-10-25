@@ -14,7 +14,7 @@ import {
   type Component,
   type OverlayOptions,
 } from "@earendil-works/pi-tui";
-import { AGENT_COLORS } from "../src/prefs/config.ts";
+import { AGENT_COLORS } from "../src/prefs/colors.ts";
 import { DialogMenu, dialogHeight, type DialogHost } from "../src/ui/dialog.ts";
 import {
   buildStatusTree,

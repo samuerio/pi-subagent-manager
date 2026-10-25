@@ -9,6 +9,7 @@ import {
   withOfflineHarness,
   type LoggedRequest,
 } from "./helpers/integrationHarness.ts";
+import { testSpec } from "./helpers/spec.ts";
 import type { ManagerSettings } from "../src/prefs/settings.ts";
 import type { ThreadView } from "../src/types.ts";
 
@@ -48,8 +49,11 @@ const toolCall = (name: string, args: Record<string, string | boolean>): Assista
 });
 const isHousekeeping = (request: LoggedRequest) =>
   request.system.includes("You label what an AI agent");
-const worker =
-  "---\nname: worker\ndescription: Execute work\ntools:\n  allow: [read]\n---\nExecute your assigned task.\n";
+const worker = testSpec("worker", {
+  description: "Execute work",
+  tools: ["read"],
+  systemPrompt: "Execute your assigned task.",
+});
 
 /** Root spawns a detached worker that reads a file, then stays running until released. */
 async function scenario(
@@ -69,7 +73,7 @@ async function scenario(
   });
   await withOfflineHarness(
     {
-      agentFiles: { worker },
+      specs: [worker],
       managerSettings,
       builtinTools: true,
       onRequest(request) {
@@ -77,9 +81,8 @@ async function scenario(
         if (request.path)
           return request.pathCall === 1 ? toolCall("read", { path: "notes.txt" }) : finish;
         if (request.pathCall === 1)
-          return toolCall("agent_spawn", {
+          return toolCall("worker_spawn", {
             path: "reader",
-            type: "worker",
             task: "Read the project notes",
             wait: false,
           });
@@ -219,12 +222,15 @@ test(
     const done = new Promise<AssistantMessage>((resolve) => {
       finish = resolve;
     });
-    const updating =
-      "---\nname: worker\ndescription: Execute work\ntools:\n  allow: [read, agent_update]\n---\nExecute your assigned task.\n";
+    const updating = testSpec("worker", {
+      description: "Execute work",
+      tools: ["read", "agent_update"],
+      systemPrompt: "Execute your assigned task.",
+    });
     let housekeepingCalls = 0;
     await withOfflineHarness(
       {
-        agentFiles: { worker: updating },
+        specs: [updating],
         managerSettings: {
           housekeepingEnabled: true,
           housekeepingModel: "integration-test/offline-alt",
@@ -247,9 +253,8 @@ test(
             return done;
           }
           if (request.pathCall === 1)
-            return toolCall("agent_spawn", {
+            return toolCall("worker_spawn", {
               path: "reader",
-              type: "worker",
               task: "Read the project notes",
               wait: false,
             });

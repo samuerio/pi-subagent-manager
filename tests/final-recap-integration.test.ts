@@ -5,12 +5,17 @@ import test from "node:test";
 import { SessionManager, type AgentSession, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, JsonObject } from "@earendil-works/pi-ai";
 import { withOfflineHarness } from "./helpers/integrationHarness.ts";
+import { testSpec } from "./helpers/spec.ts";
 
 const UPDATE = "pi-subagent:update";
 const SUMMARY = "pi-subagent:final-recap";
 const MAILBOX = "pi-subagent:root-mailbox:v1";
 const WAKE = "pi-subagent:wake";
-const worker = "---\nname: worker\ndescription: Execute work\ntools:\n  allow: [agent_update]\n---\nExecute your assigned task.\n";
+const worker = testSpec("worker", {
+  description: "Execute work",
+  tools: ["agent_update"],
+  systemPrompt: "Execute your assigned task.",
+});
 const answer = (text: string): AssistantMessage => ({
   role: "assistant", content: [{ type: "text", text }],
   provider: "integration-test", model: "offline", api: "openai-completions",
@@ -27,14 +32,14 @@ const toolUse = (id: string, name: string, args: JsonObject): AssistantMessage =
 const spawn = (count = 1, wait = false): AssistantMessage => ({
   ...answer(""), stopReason: "toolUse",
   content: Array.from({ length: count }, (_, i) => ({
-    type: "toolCall", id: `spawn-${i}`, name: "agent_spawn",
+    type: "toolCall", id: `spawn-${i}`, name: "worker_spawn",
     arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait },
   })),
 });
 const timedSpawn = (count = 1): AssistantMessage => ({
   ...answer(""), stopReason: "toolUse",
   content: Array.from({ length: count }, (_, i) => ({
-    type: "toolCall", id: `timed-spawn-${i}`, name: "agent_spawn",
+    type: "toolCall", id: `timed-spawn-${i}`, name: "worker_spawn",
     arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait: false, timeoutMs: 300000 },
   })),
 });
@@ -78,7 +83,7 @@ test("Final Recap batches idle detached completions, not progress, and persists 
   const children = [deferred<AssistantMessage>(), deferred<AssistantMessage>()];
   let rootCalls = 0;
   await withOfflineHarness({
-    agentFiles: { worker }, managerSettings: { finalRecap: true },
+    specs: [worker], managerSettings: { finalRecap: true },
     onRequest(request) {
       if (request.path) {
         const i = Number(request.path.at(-1));
@@ -138,7 +143,7 @@ test("recap waits until all outstanding async agents have reported, then runs on
   const children = [deferred<AssistantMessage>(), deferred<AssistantMessage>()];
   let rootCalls = 0;
   await withOfflineHarness({
-    agentFiles: { worker }, managerSettings: { finalRecap: true },
+    specs: [worker], managerSettings: { finalRecap: true },
     onRequest(request) {
       if (request.path) return children[Number(request.path.at(-1))]!.promise;
       rootCalls++;
@@ -179,7 +184,7 @@ for (const foreground of [true, false]) {
     const root = deferred<AssistantMessage>();
     let rootCalls = 0;
     await withOfflineHarness({
-      agentFiles: { worker }, managerSettings: { finalRecap: true },
+      specs: [worker], managerSettings: { finalRecap: true },
       onRequest(request) {
         if (request.path) return child.promise;
         rootCalls++;
@@ -219,7 +224,7 @@ for (const foreground of [true, false]) {
 
 test("shutdown cancels a queued summary before opening a new session", { timeout: 15000 }, async () => {
   await withOfflineHarness({
-    agentFiles: { worker }, managerSettings: { finalRecap: true },
+    specs: [worker], managerSettings: { finalRecap: true },
     onRequest() { assert.fail("a summary must not run across a session switch"); },
   }, async ({ cwd, open, close, requests, errors }) => {
     const session = await open(SessionManager.create(cwd));
@@ -248,7 +253,7 @@ for (const suppression of ["finalRecap", "off"] as const) {
     const child = deferred<AssistantMessage>();
     let rootCalls = 0;
     await withOfflineHarness({
-      agentFiles: { worker }, managerSettings: { finalRecap: true },
+      specs: [worker], managerSettings: { finalRecap: true },
       onRequest(request) {
         if (request.path) return child.promise;
         rootCalls++;
@@ -309,7 +314,7 @@ for (const order of [
       let rootCalls = 0;
       await withOfflineHarness(
         {
-          agentFiles: { worker },
+          specs: [worker],
           managerSettings: { finalRecap: true },
           onRequest(request) {
             if (request.path) return children[Number(request.path.at(-1))]!.promise;
@@ -382,17 +387,14 @@ test(
     let rootCalls = 0;
     await withOfflineHarness(
       {
-        agentFiles: {
-          worker: worker.replace("allow: [agent_update]", "allow: [agent_update, agent_spawn]"),
-        },
+        specs: [testSpec("worker", { ...worker, tools: [...worker.tools, "worker_spawn"] })],
         managerSettings: { finalRecap: true },
         onRequest(request) {
           if (request.path === "/root/worker-0/leaf") return leaf.promise;
           if (request.path === "/root/worker-0")
             return request.pathCall === 1
-              ? toolUse("spawn-leaf", "agent_spawn", {
+              ? toolUse("spawn-leaf", "worker_spawn", {
                   path: "leaf",
-                  type: "worker",
                   task: "Nested task",
                   wait: false,
                   timeoutMs: 300000,
@@ -461,7 +463,7 @@ test(
     let rootCalls = 0;
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         managerSettings: { finalRecap: true },
         onRequest(request) {
           if (request.path) return child.promise;
@@ -533,7 +535,7 @@ test(
     let rootCalls = 0;
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         managerSettings: { finalRecap: true },
         onRequest(request) {
           if (request.path) return children[Number(request.path.at(-1))]!.promise;
@@ -616,7 +618,7 @@ test(
     let rootCalls = 0;
     await withOfflineHarness(
       {
-        agentFiles: { worker },
+        specs: [worker],
         managerSettings: { finalRecap: true },
         onRequest(request) {
           if (request.path === "/root/worker-0") return first.promise;
@@ -626,9 +628,8 @@ test(
           if (rootCalls === 2) return answer("Initial work is delegated");
           if (rootCalls === 3) {
             assert.match(request.messagesText, /continue any unfinished work/);
-            return toolUse("continue-next-batch", "agent_spawn", {
+            return toolUse("continue-next-batch", "worker_spawn", {
               path: "next",
-              type: "worker",
               task: "Dependent unfinished work",
               wait: false,
               timeoutMs: 300000,
@@ -710,7 +711,7 @@ for (const foreground of [true, false]) {
           let rootCalls = 0;
           await withOfflineHarness(
             {
-              agentFiles: { worker },
+              specs: [worker],
               managerSettings: { finalRecap },
               onRequest(request) {
                 if (request.path)

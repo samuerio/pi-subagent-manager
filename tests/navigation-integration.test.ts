@@ -7,7 +7,6 @@ import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earen
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { setKeybindings, TuiMainScreen, type Terminal } from "@earendil-works/pi-tui";
 import piSubagent from "../src/index.ts";
-import { markImportOffered } from "../src/prefs/agent-import.ts";
 import { DEFAULT_MANAGER_SETTINGS, loadManagerSettings, saveManagerSettings, LOADER_STYLES, type LoaderStyle } from "../src/prefs/settings.ts";
 import { AGENT_LOADERS } from "../src/ui/agent-loader.ts";
 import { ThreadManager } from "../src/orch/manager.ts";
@@ -61,7 +60,6 @@ async function fixture(
   const cwd = mkdtempSync(join(tmpdir(), "pi-agent-navigation-"));
   const oldDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = cwd;
-  markImportOffered(cwd);
   if (options.widgetMode || options.nerdFontIcons || options.loaderStyle) saveManagerSettings({
     cwd, agentDir: cwd, includeProject: false, scope: "user",
     settings: {

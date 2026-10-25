@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
-import { ConfigStore } from "../src/prefs/config.ts";
 import { dialogHeight, type DialogRow } from "../src/ui/dialog.ts";
 import { AGENT_LOADERS } from "../src/ui/agent-loader.ts";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
@@ -92,7 +91,6 @@ async function run(
   let applied = 0;
   const appliedSettings: ManagerSettings[] = [];
   await configureAgents(ctx, {
-    store: new ConfigStore({ cwd: root, agentDir, includeProject: false }),
     agentDir,
     settings: { ...initialSettings },
     checklistStatus,
@@ -272,64 +270,9 @@ for (const width of [32, 80]) {
   });
 }
 
-test("Model Picking saves all three modes", async (t) => {
-  for (const [mode, label] of [
-    ["pick-first-available", "Pick First (available)"],
-    ["pick-first-scoped", "Pick First (scoped)"],
-    ["use-current", "Use Current"],
-  ]) {
-    const result = await run(t, ["modelSelection", mode, "save"]);
-    const field = result.menus[0]!.rows.find((row) => row.id === "modelSelection")!;
-    assert.equal(field.label, "Model Picking");
-    assert.equal(field.value, "Pick First (scoped)");
-    assert.equal(result.menus[0]!.rows.some((row) => row.id === "scopedModelFiltering"), false);
-    const chooser = result.menus[1]!;
-    assert.equal(chooser.title, "Model Picking");
-    assert.deepEqual(chooser.rows.map((row) => row.id), [
-      "pick-first-available", "pick-first-scoped", "use-current",
-    ]);
-    assert.deepEqual(chooser.rows.map((row) => row.label), [
-      "Pick First (available)", "Pick First (scoped)", "Use Current",
-    ]);
-    assert.ok(chooser.rows.every((row) => row.value && row.help));
-    assert.equal(result.value(2, "modelSelection"), label);
-    assert.equal(result.applied, 1);
-    assert.equal(result.loaded.settings.modelSelection, mode);
-    assert.equal(result.loaded.diagnostics.length, 0);
-    const stored = JSON.parse(readFileSync(result.userFile, "utf8"));
-    assert.equal(stored.modelSelection,
-      mode === DEFAULT_MANAGER_SETTINGS.modelSelection ? undefined : mode);
-    assert.equal(Object.hasOwn(stored, "scopedModelFiltering"), false);
-  }
-});
-
-test("Model Picking and other edits stay draft-only until save; chooser cancellation keeps the value", async (t) => {
-  const canceled = await run(t, ["modelSelection", "pick-first-available", "maxLevels", "4", "cancel"]);
-  assert.equal(canceled.applied, 0);
-  assert.equal(existsSync(canceled.userFile), false);
-  assert.deepEqual(canceled.loaded.settings, DEFAULT_MANAGER_SETTINGS);
-  assert.equal(canceled.value(0, "modelSelection"), "Pick First (scoped)");
-  assert.equal(canceled.value(2, "modelSelection"), "Pick First (available)");
-  assert.match(canceled.menus[2]?.title ?? "", /unsaved/);
-  assert.equal(canceled.value(3, "maxLevels"), "4");
-
-  const escaped = await run(t, ["modelSelection", undefined, "save"]);
-  assert.equal(escaped.value(2, "modelSelection"), "Pick First (scoped)");
-  assert.doesNotMatch(escaped.menus[2]!.title, /unsaved/);
-  assert.equal(escaped.loaded.settings.modelSelection, "pick-first-scoped");
-});
-
-test("Model Picking saves to a trusted project", async (t) => {
-  const saved = await run(t, ["scope", "confirm", "modelSelection", "use-current", "save"], { trusted: true });
-  assert.equal(saved.applied, 1);
-  assert.equal(saved.loaded.settings.modelSelection, "use-current");
-  assert.equal(JSON.parse(readFileSync(saved.projectFile, "utf8")).modelSelection, "use-current");
-  assert.equal(existsSync(saved.userFile), false);
-});
-
 test("save shows a warning-colored changes value only while the draft is dirty", async (t) => {
   const result = await run(t, [
-    "modelSelection", "pick-first-available", "modelSelection", "pick-first-scoped",
+    "subagentMode", "orchestration", "subagentMode", "opportunistic",
     "maxLevels", "5", "defaults", "user", "cancel",
   ]);
   const settingsMenus = result.menus.filter((menu) => menu.title.startsWith("Agents settings"));
@@ -344,17 +287,6 @@ test("save shows a warning-colored changes value only while the draft is dirty",
     assert.equal(save(index).valueColor, "warning");
   }
 });
-
-for (const width of [32, 80]) {
-  test(`Model Picking screen and chooser render bordered frames at width ${width}`, async (t) => {
-    const result = await run(t, ["modelSelection", "use-current", "cancel"], { width });
-    assert.ok(result.renders.every((lines) =>
-      lines[0]!.includes("Model Picking") || lines[0]!.includes("Agents settings"),
-    ));
-    assert.equal(result.value(2, "modelSelection"), "Use Current");
-    assert.ok(result.renders[2]!.join("\n").includes("Use Current"));
-  });
-}
 
 test("Global to Project confirmation Cancel and Esc preserve files, scope and unsaved draft", async (t) => {
   for (const choice of ["cancel", undefined]) {
@@ -410,15 +342,11 @@ test("restore defaults deletes the chosen scope's file and resets the draft", as
     settings: {
       ...DEFAULT_MANAGER_SETTINGS,
       subagentMode: "orchestration",
-      toolFiltering: "all",
-      modelSelection: "use-current",
       maxLevels: 9,
     },
   });
   assert.equal(result.applied, 1);
-  assert.equal(result.value(2, "modelSelection"), "Pick First (scoped)");
   assert.equal(result.value(2, "subagentMode"), "Opportunistic");
-  assert.equal(result.value(2, "toolFiltering"), "Allowed (except blocked)");
   assert.deepEqual(result.loaded.settings, DEFAULT_MANAGER_SETTINGS);
   assert.equal(existsSync(result.userFile), false, "file is deleted, not rewritten");
   assert.match(result.notifications.join("\n"), new RegExp(`Deleted ${result.userFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
@@ -688,17 +616,16 @@ test("saved provenance distinguishes both layers, equal values, and projects rev
   for (const width of [20, 40, 80]) {
     const result = await run(t, ["maxLevels", "8", "cancel"], {
       trusted: true, width,
-      global: { maxLevels: 5, widgetMode: "minimal", maxConcurrent: DEFAULT_MANAGER_SETTINGS.maxConcurrent },
-      project: { maxLevels: DEFAULT_MANAGER_SETTINGS.maxLevels, widgetMode: "minimal", maxConcurrent: 8 },
+      global: { maxLevels: 5, finalRecap: true, maxConcurrent: DEFAULT_MANAGER_SETTINGS.maxConcurrent },
+      project: { maxLevels: DEFAULT_MANAGER_SETTINGS.maxLevels, finalRecap: true, maxConcurrent: 8 },
     });
     assert.equal(result.value(0, "maxLevels"), String(DEFAULT_MANAGER_SETTINGS.maxLevels));
     assert.equal(savedIndicators(result.menus[0]!, "maxLevels"),
       "<accent>●</accent> <warning>●</warning>");
-    assert.equal(savedIndicators(result.menus[0]!, "widgetMode"), "<accent>●</accent>  ",
+    assert.equal(savedIndicators(result.menus[0]!, "finalRecap"), "<accent>●</accent>  ",
       "project value equal to global does not count as changed");
     assert.equal(savedIndicators(result.menus[0]!, "maxConcurrent"), "  <warning>●</warning>",
       "explicit global value equal to default does not count as changed");
-    assert.equal(savedIndicators(result.menus[0]!, "modelSelection"), "   ");
     assert.equal(savedIndicators(result.menus[1]!, "maxLevels"), savedIndicators(result.menus[0]!, "maxLevels"),
       "unsaved edits do not change saved provenance");
     assert.doesNotMatch(result.menus[0]!.rows.find((row) => row.id === "maxLevels")!.help!, /Dots|Saved:/);
@@ -778,81 +705,6 @@ for (const width of [20, 40, 80]) {
     assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), {});
     assert.equal(result.applied, 0);
     assert.ok(result.renders.every((lines) => lines.every((line) => visibleWidth(line) <= width)));
-  });
-}
-
-test("Tool Filtering saves every mode", async (t) => {
-  for (const [mode, label] of [
-    ["allowed", "Allowed (except blocked)"],
-    ["all-except-blocked", "All except blocked"],
-    ["all", "All"],
-  ]) {
-    const result = await run(t, ["toolFiltering", mode, "save"]);
-    const field = result.menus[0]!.rows.find((row) => row.id === "toolFiltering")!;
-    assert.equal(field.label, "Tool Filtering");
-    assert.equal(field.value, "Allowed (except blocked)");
-    const chooser = result.menus[1]!;
-    assert.equal(chooser.title, "Tool Filtering");
-    assert.deepEqual(
-      chooser.rows.map((row) => row.id),
-      ["allowed", "all-except-blocked", "all"],
-    );
-    assert.deepEqual(
-      chooser.rows.map((row) => row.label),
-      ["Allowed (except blocked)", "All except blocked", "All"],
-    );
-    assert.ok(chooser.rows.every((row) => row.value && row.help));
-    assert.equal(result.value(2, "toolFiltering"), label);
-    assert.equal(result.applied, 1);
-    assert.equal(result.loaded.settings.toolFiltering, mode);
-    assert.equal(result.loaded.diagnostics.length, 0);
-    assert.equal(JSON.parse(readFileSync(result.userFile, "utf8")).toolFiltering,
-      mode === DEFAULT_MANAGER_SETTINGS.toolFiltering ? undefined : mode);
-  }
-});
-
-test("Tool Filtering selection and chooser cancellation remain draft-only", async (t) => {
-  const canceled = await run(t, ["toolFiltering", "all", "cancel"]);
-  assert.equal(canceled.value(2, "toolFiltering"), "All");
-  assert.match(canceled.menus[2]!.title, /unsaved/);
-  assert.equal(canceled.applied, 0);
-  assert.equal(existsSync(canceled.userFile), false);
-  assert.deepEqual(canceled.loaded.settings, DEFAULT_MANAGER_SETTINGS);
-
-  const escaped = await run(t, ["toolFiltering", undefined, "save"]);
-  assert.equal(escaped.value(2, "toolFiltering"), "Allowed (except blocked)");
-  assert.doesNotMatch(escaped.menus[2]!.title, /unsaved/);
-  assert.equal(escaped.loaded.settings.toolFiltering, "allowed");
-});
-
-test("Tool Filtering saves to a trusted project and restores defaults without saving on cancel", async (t) => {
-  const saved = await run(t, ["scope", "confirm", "toolFiltering", "all-except-blocked", "save"], { trusted: true });
-  assert.equal(saved.applied, 1);
-  assert.equal(saved.loaded.settings.toolFiltering, "all-except-blocked");
-  assert.equal(
-    JSON.parse(readFileSync(saved.projectFile, "utf8")).toolFiltering,
-    "all-except-blocked",
-  );
-  assert.equal(existsSync(saved.userFile), false);
-
-  const restored = await run(t, ["toolFiltering", "all", "defaults", "user", "cancel"]);
-  assert.equal(restored.value(2, "toolFiltering"), "All");
-  assert.equal(restored.value(4, "toolFiltering"), "Allowed (except blocked)");
-  assert.doesNotMatch(restored.menus[4]!.title, /unsaved/);
-  assert.equal(restored.applied, 1);
-  assert.equal(existsSync(restored.userFile), false);
-});
-
-for (const width of [32, 80]) {
-  test(`Tool Filtering screen and chooser render bordered frames at width ${width}`, async (t) => {
-    const result = await run(t, ["toolFiltering", "all", "cancel"], { width });
-    assert.ok(
-      result.renders.every(
-        (lines) => lines[0]!.includes("Tool Filtering") || lines[0]!.includes("Agents settings"),
-      ),
-    );
-    assert.ok(result.renders[1]!.join("\n").includes("All"));
-    assert.equal(result.value(2, "toolFiltering"), "All");
   });
 }
 
