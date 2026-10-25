@@ -6,7 +6,7 @@ export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 /** Model routing role pinned in modes.json: the advisor or the general worker pool. */
 export const AGENT_ROLES = ["oracle", "subagents"] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
-export const AGENT_SPEC_NAMES = ["task", "finder", "oracle", "librarian"] as const;
+export const AGENT_SPEC_NAMES = ["task", "finder", "oracle", "librarian", "reviewer"] as const;
 export type AgentSpecName = (typeof AGENT_SPEC_NAMES)[number];
 /**
  * A built-in agent. Specs are code constants (see src/agents/specs.ts): there is

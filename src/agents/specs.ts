@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { REVIEW_RUBRIC } from "./reviewer/rubric.ts";
 import { AGENT_SPEC_NAMES, type AgentSpec, type AgentSpecName } from "../types.ts";
 
 /**
@@ -279,11 +280,68 @@ Examples:
 - "What changed in commit abc123 in my private repository?"
 - "Read the README from the main API repo"`;
 
+/** Where to review, how to resolve each diff, and the reply contract for the reviewer. */
+const REVIEW_PROCEDURE = `# Review Procedure
+
+Your first message is the task. Its first line is a \`TARGET:\` descriptor that says what to review; any lines after it are extra instructions from the caller.
+
+## 1. Parse the target
+
+- \`TARGET: working-tree\`: uncommitted changes, staged, unstaged and untracked.
+- \`TARGET: branch:<base>\`: this branch compared with \`<base>\`, for example \`TARGET: branch:main\`.
+- \`TARGET: commit:<sha>\`: the change introduced by one commit.
+- \`TARGET: pr:<number>\`: a GitHub pull request.
+- \`TARGET: paths:<a,b>\`: a snapshot review of these files or directories, no diff.
+
+If the descriptor is missing or unreadable, infer the target in this order and say which one you inferred: existing uncommitted changes, then a branch with commits ahead of its upstream or the default branch, then \`HEAD\`.
+
+## 2. Resolve the diff yourself
+
+Run git with \`bash\`. The caller has not gathered the diff, and relative paths resolve against your own working directory, not the caller's. State the exact commands whose output you reviewed.
+
+- working-tree: \`git diff HEAD\` covers staged and unstaged edits; \`git ls-files --others --exclude-standard\` lists untracked files, which no diff shows; \`git status --porcelain\` confirms the set. A path listing is not a review: read each untracked file with the read tool, or diff it with \`git diff --no-index /dev/null <file>\`. Do not run \`git add -N\`; it mutates the index.
+- branch:<base>: \`git rev-parse --verify <base>\`, retrying with \`origin/<base>\` when that fails. Then \`git merge-base --all HEAD <base>\` and \`git diff <mergeBase>\`. Never use \`git diff <base>\` here: it includes commits the base added and you never had. If there is no merge base (unrelated or shallow history), fall back to \`git diff <base>..HEAD\` and say so in the report. Prefer \`origin/<base>\` when both refs exist, because a local base branch can be stale. Add \`git ls-files --others --exclude-standard\` when the caller also wants local work reviewed.
+- commit:<sha>: \`git show --stat <sha>\` to locate the change, then \`git show <sha>\`.
+- pr:<number>: \`gh pr diff <number>\`. If gh is missing or unauthenticated, stop and state the missing prerequisite instead of reconstructing the diff by hand.
+- paths:<a,b>: read the files directly. This is a snapshot review, so there is no diff: judge the code as it stands.
+
+## 3. Read project instructions
+
+Your context is isolated: AGENTS.md, CLAUDE.md and skills are not preloaded. Read \`AGENTS.md\` and \`CLAUDE.md\` from the repository root when they exist, then look for \`REVIEW_GUIDELINES.md\` beside the nearest ancestor \`.pi\` directory and at the repository root. Project instructions override the general guidelines above.
+
+## 4. Review
+
+Judge only what the resolved change introduced. Read surrounding code when a finding depends on a caller or a type the diff does not show; a diff alone cannot prove impact.
+
+## 5. Reply contract
+
+- Only your last message is handed back to the caller. Everything before it, including tool output, is dropped.
+- Put the whole report in that final message: the verdict line, every finding, then the callouts section.
+- Once you start writing the report, call no tools at all, \`agent_update\` included: a later tool call would replace the findings as the handback.
+- Never modify the working tree. No file edits, no shell redirection into files, no \`git checkout\`, \`git switch\`, \`git restore\` or \`git stash\`.
+
+## When the target stays ambiguous
+
+If step 1 leaves two plausible targets, for example \`branch:main\` in a repository whose default branch is \`master\`, call \`agent_pause\` with one precise question. A wrong diff produces a confident and useless review.`;
+
+const REVIEWER_SYSTEM_PROMPT = `${REVIEW_RUBRIC}\n\n---\n\n${REVIEW_PROCEDURE}`;
+
+export const REVIEWER_DESCRIPTION = `Review a code change and report prioritized, actionable findings with a verdict.
+
+Spawns a read-only reviewer that resolves the diff itself, so you do not need to gather it first. Begin the task with a \`TARGET:\` line naming what to review:
+- \`TARGET: working-tree\` for uncommitted changes, staged, unstaged and untracked
+- \`TARGET: branch:main\` for this branch against a base branch
+- \`TARGET: commit:abc1234\` for one commit
+- \`TARGET: pr:123\` for a GitHub pull request
+- \`TARGET: paths:src/orch,docs/\` for a snapshot review with no diff
+
+Lines after the descriptor are extra instructions, for example "TARGET: working-tree\\nFocus on the new spawn parameter handling." Findings carry [P0]-[P3] tags and the final message opens with a verdict, so read it instead of steering. Use this to review a change; use oracle_spawn for design questions that are not tied to a diff, and task_spawn when the review also needs fixes.`;
+
 /** Shared read-only search surface for the advisory and lookup agents. */
 const READ_ONLY_TOOLS = [...REPORT_TOOLS, "read", "bash", "grep", "find", "ls"];
 
 /**
- * The four built-in agents, in registration order. Adding an agent means adding
+ * The five built-in agents, in registration order. Adding an agent means adding
  * an entry here plus its description; the spawn tool, prompt guidance, `/agents`
  * completions and the model role all derive from this list.
  */
@@ -338,6 +396,16 @@ export const AGENT_SPECS: readonly AgentSpec[] = [
     icon: "\u{f040}",
     tools: [...READ_ONLY_TOOLS],
     skills: [LIBRARIAN_SKILL_DIR],
+  },
+  {
+    name: "reviewer",
+    description: REVIEWER_DESCRIPTION,
+    systemPrompt: REVIEWER_SYSTEM_PROMPT,
+    role: "subagents",
+    color: "toolDiffAdded",
+    icon: "\u{f00c}",
+    tools: [...READ_ONLY_TOOLS],
+    skills: [],
   },
 ];
 

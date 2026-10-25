@@ -44,9 +44,10 @@ The **Agents** widget above the input shows what's running. Open `/agents tree`,
 | `finder`    | `finder_spawn`     | Codebase search: behavior, call sites, patterns         |
 | `oracle`    | `oracle_spawn`     | Review, planning, architecture, deep reasoning          |
 | `librarian` | `librarian_spawn`  | Understanding repositories outside this workspace       |
+| `reviewer`  | `reviewer_spawn`   | Reviewing a change with prioritized findings and verdict |
 
 Each spawn tool is one fixed agent, so there is no `type` to choose and no agent listing to fetch.
-All four are defined as code in [`src/agents/specs.ts`](src/agents/specs.ts): modify that file to change an
+All five are defined as code in [`src/agents/specs.ts`](src/agents/specs.ts): modify that file to change an
 agent's prompt, tool allowlist, skills, color, or icon. Models are not configured per agent; the active
 `modes.json` mode pins each role's provider, model and thinking level.
 

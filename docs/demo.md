@@ -3,8 +3,8 @@
 [Watch the GIF](assets/subagent-manager-demo.gif).
 
 > Recorded before the roster changed: the GIF shows the earlier six-role agent set and the
-> `/agents types` editor. The current build ships four code-defined agents (`task`, `finder`,
-> `oracle`, `librarian`) and routes models through `modes.json` role pins.
+> `/agents types` editor. The current build ships five code-defined agents (`task`, `finder`, `oracle`,
+> `librarian`, `reviewer`) and routes models through `modes.json` role pins.
 
 ## What it shows
 

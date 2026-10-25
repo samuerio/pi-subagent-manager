@@ -182,7 +182,7 @@ Agents do not choose models. Each built-in agent names a role, and the active mo
 | Role        | Serves                    |
 | ----------- | ------------------------- |
 | `oracle`    | `oracle_spawn`            |
-| `subagents` | `task_spawn`, `finder_spawn`, `librarian_spawn` |
+| `subagents` | `task_spawn`, `finder_spawn`, `librarian_spawn`, `reviewer_spawn` |
 
 ```json
 {

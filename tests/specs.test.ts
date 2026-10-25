@@ -4,7 +4,7 @@ import { AGENT_SPECS, getAgentSpec, listAgentSpecs, spawnToolName } from "../src
 import { AGENT_SPEC_NAMES, AGENT_ROLES } from "../src/types.ts";
 import { agentTools } from "../src/orch/tools.ts";
 
-test("the built-in roster is exactly the four documented agents", () => {
+test("the built-in roster is exactly the five documented agents", () => {
   assert.deepEqual(
     AGENT_SPECS.map((spec) => spec.name),
     [...AGENT_SPEC_NAMES],
