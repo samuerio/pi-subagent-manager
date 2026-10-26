@@ -1,4 +1,8 @@
-import { CAPABILITY_PROBE_CHANNEL, respondDiagnosticCapability, diagnosticAgentText } from "./orch/diagnostics.ts";
+import {
+  CAPABILITY_PROBE_CHANNEL,
+  respondDiagnosticCapability,
+  diagnosticAgentText,
+} from "./orch/diagnostics.ts";
 import { randomUUID } from "node:crypto";
 import { buildSessionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -9,6 +13,7 @@ import { configureAgents } from "./ui/settings-ui.ts";
 import { AgentNavigationController } from "./ui/status-ui.ts";
 import { AgentNavigationEditor } from "./ui/agent-navigation-editor.ts";
 import { createDriverFactory } from "./orch/runtime.ts";
+import { resolveRoleRouting } from "./orch/routing.ts";
 import {
   createHousekeepingCompleter,
   HousekeepingSummarizer,
@@ -107,7 +112,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
     return loaded.diagnostics;
   };
   const checklistMirror = new ChecklistMetaMirror(() => getAgentDir());
-  const currentChecklistStatus = (ctx: ExtensionContext) => checklistStatus(pi, checklistMirror, ctx);
+  const currentChecklistStatus = (ctx: ExtensionContext) =>
+    checklistStatus(pi, checklistMirror, ctx);
   let generation = 0;
   let rootTurnEnded = false;
   const hiddenWidgetThreads = new Set<string>();
@@ -332,7 +338,11 @@ export default function piSubagent(pi: ExtensionAPI): void {
     // compacting, which does not necessarily produce an agent_settled event.
     if (
       !wakeRequested &&
-      !(limits.finalRecap && (manager?.outstandingAsync() ?? 0) === 0 && pendingSummaries(ctx).length > 0) &&
+      !(
+        limits.finalRecap &&
+        (manager?.outstandingAsync() ?? 0) === 0 &&
+        pendingSummaries(ctx).length > 0
+      ) &&
       !pendingRootNotifications(ctx).some((notification) => notification.trigger === true)
     )
       return;
@@ -541,7 +551,9 @@ export default function piSubagent(pi: ExtensionAPI): void {
     // Re-verify on every turn: the Labs opt-in AND live checklist eligibility must both hold.
     const prompt = subagentPrompt(
       limits,
-      limits.checklistIntegration && limits.subagentMode !== "off" && currentChecklistStatus(ctx).eligible,
+      limits.checklistIntegration &&
+        limits.subagentMode !== "off" &&
+        currentChecklistStatus(ctx).eligible,
     );
     if (!prompt) return;
     return {
@@ -580,6 +592,10 @@ export default function piSubagent(pi: ExtensionAPI): void {
     const instance = new ThreadManager({
       ...limits,
       createDriver: driverFactory,
+      roleModel: (role) => {
+        const routing = resolveRoleRouting(requireContext().cwd, role);
+        return { model: routing.model, thinkingLevel: routing.thinking };
+      },
       rootSnapshot: () => buildSessionContext(requireContext().sessionManager.getBranch()).messages,
       getType: getAgentSpec,
       toolsFor,

@@ -130,6 +130,22 @@ function fixture(extra: Partial<ManagerOptions> = {}) {
   return { manager, drivers, events, root };
 }
 
+test("spawn stamps the role pin so an async spawn reports its model immediately", async () => {
+  const { manager } = fixture({
+    roleModel: (role) => ({ model: `p/${role}`, thinkingLevel: "high" }),
+  });
+  const view = await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "do work",
+    description: "Check spawn stamping",
+    wait: false,
+  });
+  assert.equal(view.model, "p/subagents");
+  assert.equal(view.thinkingLevel, "high");
+  assert.equal(view.state, "starting");
+});
+
 test("spawn snapshots only lexical parent; independent roots have no root context", async () => {
   const { manager, drivers, root } = fixture();
   await manager.spawn("/root", { path: "worker", type: "worker", task: "do work", wait: false });

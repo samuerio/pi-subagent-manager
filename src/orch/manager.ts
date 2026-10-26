@@ -367,6 +367,9 @@ export class ThreadManager {
       throw new Error("Total thread limit reached");
     this.assertCapacity();
     const type = structuredClone(this.options.getType(args.type));
+    // Stamp the role pin at spawn so an async spawn reports its real model
+    // immediately; later usage events stay authoritative.
+    const routing = this.options.roleModel?.(type.role);
     const parentRecord = parent && parent !== "/root" ? this.record(parent) : undefined;
     this.assertStartableAncestors(path);
     // Reservation is synchronous: subtree cancellation sees children even during lazy parent reopen.
@@ -388,6 +391,7 @@ export class ThreadManager {
         state: "starting",
         task: args.task,
         ...(args.description !== undefined ? { description: args.description } : {}),
+        ...(routing ? { model: routing.model, thinkingLevel: routing.thinkingLevel } : {}),
         status: "Starting",
         createdAt: now,
         costId: randomUUID(),

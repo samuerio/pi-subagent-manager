@@ -161,6 +161,20 @@ test("the expanded view shows a placeholder when there is no output", () => {
   assert.ok(!lines.includes("\u2500\u2500\u2500"));
 });
 
+test("the expanded view stays quiet while a child is starting or running", () => {
+  const lines = rendered(
+    renderSpawnResult(
+      callResult(thread({ state: "running", output: undefined, sessionFile: undefined })),
+      { expanded: true },
+      theme,
+    ) as never,
+  );
+  assert.match(lines, /Investigate the flaky test/);
+  assert.doesNotMatch(lines, /no output/);
+  assert.doesNotMatch(lines, /\u2500\u2500\u2500/);
+  assert.match(lines, /running · model pending/);
+});
+
 // --- throw path -----------------------------------------------------------------------------
 
 test("a thrown result with wiped details renders dyed envelope text", () => {

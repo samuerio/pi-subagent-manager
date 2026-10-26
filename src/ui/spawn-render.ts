@@ -99,7 +99,8 @@ export function renderSpawnResult(
   }
   if (output?.trim()) {
     container.addChild(new Markdown(output.trim(), 0, 0, getMarkdownTheme()));
-  } else {
+  } else if (thread.state !== "starting" && thread.state !== "running") {
+    // An unsettled child has not produced output yet; saying so would be noise.
     container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
   }
   if (thread.outputTruncated) {

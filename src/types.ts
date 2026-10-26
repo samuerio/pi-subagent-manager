@@ -246,6 +246,8 @@ export interface ThreadActivity {
 }
 export interface ManagerOptions {
   createDriver: DriverFactory;
+  /** Optional spawn-time stamp: the role pin resolved once, before the driver starts. */
+  roleModel?(role: AgentRole): { model: string; thinkingLevel: ThinkingLevel };
   rootSnapshot(): AgentMessage[];
   getType(name: string): AgentSpec;
   toolsFor(path: string): ToolDefinition[];
