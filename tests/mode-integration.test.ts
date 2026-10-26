@@ -56,7 +56,7 @@ for (const earlyChildren of [2, 1, 0]) {
         rootCalls++;
         if (rootCalls === 1) return {
           ...answer(""), stopReason: "toolUse",
-          content: [0, 1].map((i) => ({ type: "toolCall" as const, id: `spawn-${i}`, name: "worker_spawn", arguments: {
+          content: [0, 1].map((i) => ({ type: "toolCall" as const, id: `spawn-${i}`, name: "worker_spawn", arguments: { description: "Test spawn",
             path: `worker-${i}`, type: "worker", task: `Run parallel task ${i}`, wait: false,
           } })),
         };
@@ -192,7 +192,7 @@ test("off keeps running work but suppresses its notifications until re-enabled",
       if (request.path) return workerResult;
       if (request.pathCall === 1) return {
         ...answer(""), stopReason: "toolUse",
-        content: [{ type: "toolCall", id: "background", name: "worker_spawn", arguments: {
+        content: [{ type: "toolCall", id: "background", name: "worker_spawn", arguments: { description: "Test spawn",
           path: "background", task: "Finish retained work", wait: false,
         } }],
       };
@@ -230,7 +230,7 @@ test("streaming notifications stay in the mailbox, do not duplicate on reload, a
       if (request.path) return workerResult;
       if (request.pathCall === 1) return {
         ...answer(""), stopReason: "toolUse",
-        content: [{ type: "toolCall", id: "streaming", name: "worker_spawn", arguments: {
+        content: [{ type: "toolCall", id: "streaming", name: "worker_spawn", arguments: { description: "Test spawn",
           path: "background", task: "Finish during root streaming", wait: false,
         } }],
       };
@@ -278,7 +278,7 @@ test("enabled streaming mailbox is delivered once at agent settlement and wakes 
       if (request.path) return answer("Worker result");
       if (request.pathCall === 1) return {
         ...answer(""), stopReason: "toolUse",
-        content: [{ type: "toolCall", id: "settled", name: "worker_spawn", arguments: {
+        content: [{ type: "toolCall", id: "settled", name: "worker_spawn", arguments: { description: "Test spawn",
           path: "background", task: "Finish while root works", wait: false,
         } }],
       };
@@ -316,7 +316,7 @@ test("orchestration restricts /root's prompt, not the child worker's prompt", { 
       if (request.pathCall === 1) return {
         ...answer(""),
         stopReason: "toolUse",
-        content: [{ type: "toolCall", id: "delegate", name: "worker_spawn", arguments: {
+        content: [{ type: "toolCall", id: "delegate", name: "worker_spawn", arguments: { description: "Test spawn",
           path: "task", task: "Execute a small sequential task", wait: true,
         } }],
       };

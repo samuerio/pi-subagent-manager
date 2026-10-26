@@ -57,6 +57,7 @@ test("reviewer_spawn keeps the shared spawn parameter set", () => {
   const tool = spawnTools.find((candidate) => candidate.name === "reviewer_spawn");
   assert.ok(tool);
   assert.deepEqual(Object.keys((tool.parameters as any).properties).sort(), [
+    "description",
     "path",
     "task",
     "timeoutMs",

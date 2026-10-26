@@ -916,3 +916,31 @@ test("child diagnostics are attributed to lexical parents and exposed in agent_s
     await manager.shutdown();
   }
 });
+
+test("a spawn description is stored, persisted and survives restore", async () => {
+  const first = fixture();
+  await first.manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "Investigate the flaky test",
+    description: "Probe flaky test",
+    wait: false,
+  });
+  await tick();
+  assert.equal(first.manager.get("worker", "/root").description, "Probe flaky test");
+  const saved = first.manager.saved();
+  assert.equal(saved[0]!.view.description, "Probe flaky test");
+  await first.manager.shutdown();
+
+  const second = fixture();
+  second.manager.restore(saved);
+  assert.equal(second.manager.get("worker", "/root").description, "Probe flaky test");
+  await second.manager.shutdown();
+});
+
+test("registries saved before descriptions restore without one", async () => {
+  const { manager } = fixture();
+  manager.restore([saved("/root/worker")]);
+  assert.equal(manager.get("worker", "/root").description, undefined);
+  await manager.shutdown();
+});

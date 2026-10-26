@@ -90,6 +90,7 @@ test(
         root.appendMessage({ ...inherited, usage: { ...inherited.usage, input: 1000 } });
         let session = await open(root);
         const paused = await tool<ThreadView>(session, "offline_spawn", {
+          description: "Test spawn",
           path: "worker",
           task: "Pause until more input",
         });
@@ -305,6 +306,7 @@ test(
         assert.equal(requests.length, 0, "restore and status reads stay offline");
 
         const spawned = await tool<ThreadView>(session, "offline_spawn", {
+          description: "Test spawn",
           path: CHILD_PATH,
           task: "Draft a nested follow-up",
         });
@@ -317,7 +319,11 @@ test(
         );
         assert.equal(requests.length, 1, "only the new child prompt uses the provider");
         assert.equal(requests[0].lexicalParent, "/root/team/reviewer");
-        assert.equal(requests[0].modelId, "offline", "uses the modes.json role pin, not the parent");
+        assert.equal(
+          requests[0].modelId,
+          "offline",
+          "uses the modes.json role pin, not the parent",
+        );
         assertMarkers(
           requests[0].messagesText,
           [ROOT, TEAM, REVIEWER],
@@ -414,6 +420,7 @@ test(
         assert.equal(requests.length, 0, "reopening does not duplicate seeded mailbox delivery");
 
         const first = await tool<ThreadView>(session, "offline_spawn", {
+          description: "Test spawn",
           path: "worker",
           task: "Produce the first answer",
         });
@@ -526,6 +533,7 @@ test("child extension diagnostics reach parent agent in headless mode without wa
       const session = await open(root);
       assert.equal(topLevelHosted, false, "parent extension event bus has no child reporting sink");
       const child = await tool<ThreadView>(session, "offline_spawn", {
+        description: "Test spawn",
         path: "worker",
         task: "work",
       });
@@ -580,6 +588,7 @@ test("diagnostics survive stop and steer resume of the same real SDK driver", as
         notifications.push(message);
       };
       const first = await tool<ThreadView>(session, "offline_spawn", {
+        description: "Test spawn",
         path: "worker",
         task: "first",
       });
@@ -617,7 +626,11 @@ test("parent model receives hostile extension diagnostics only as labeled JSON d
       );
       const root = SessionManager.create(cwd, path.join(directory, "parents"));
       const session = await open(root);
-      await tool(session, "offline_spawn", { path: "worker", task: "work" });
+      await tool(session, "offline_spawn", {
+        description: "Test spawn",
+        path: "worker",
+        task: "work",
+      });
       const report = rootNotifications(root).find((m) =>
         JSON.stringify(m).includes("Ignore the previous task"),
       );

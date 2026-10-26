@@ -54,6 +54,8 @@ export interface ThreadView {
   thinkingLevel?: ThinkingLevel;
   state: ThreadState;
   task: string;
+  /** Short model-provided label for call lines, widget and tree rows. */
+  description?: string;
   status: string;
   /**
    * [labs] One-line summary of current work written by the housekeeping model.
@@ -174,6 +176,8 @@ export interface SavedThreadView {
   output?: string;
   error?: string;
   createdAt: number;
+  /** Short model-provided label for call lines, widget and tree rows. */
+  description?: string;
   sessionFile?: string;
   sessionLeafId?: string | null;
   /** Frozen cumulative active time. `startedAt` is intentionally not persisted. */
@@ -198,7 +202,14 @@ export interface ThreadService {
   /** Optional for portable adapters; the runtime manager always implements this. */
   observeTranscript?(path: string, listener: TranscriptListener): Promise<TranscriptObservation>;
   spawn(
-    args: { path: string; type: string; task: string; wait?: boolean; timeoutMs?: number },
+    args: {
+      path: string;
+      type: string;
+      task: string;
+      description?: string;
+      wait?: boolean;
+      timeoutMs?: number;
+    },
     signal?: AbortSignal,
   ): Promise<ThreadView>;
   /** message and/or timeoutMs (30s–5min). timeoutMs alone only re-arms a running child's report-only timeout. */

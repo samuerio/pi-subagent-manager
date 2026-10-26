@@ -15,7 +15,8 @@ function fixture(t: TestContext, options: Partial<ManagerOptions> = {}) {
   const running = new Map<string, () => void>();
   const manager = new ThreadManager({
     rootSnapshot: () => [],
-    getType: (name) => testSpec(name, { description: "Test coordinator", systemPrompt: "Coordinate" }),
+    getType: (name) =>
+      testSpec(name, { description: "Test coordinator", systemPrompt: "Coordinate" }),
     toolsFor: () => [],
     createDriver: async ({ path }) => ({
       prompt: async () => {
@@ -99,7 +100,13 @@ const spawnPair = (names: string[]): AssistantMessage => ({
     type: "toolCall",
     id: `spawn-${path}`,
     name: "coordinator_spawn",
-    arguments: { path, type: "coordinator", task: "Coordinate", wait: true },
+    arguments: {
+      description: "Test spawn",
+      path,
+      type: "coordinator",
+      task: "Coordinate",
+      wait: true,
+    },
   })),
 });
 
@@ -172,6 +179,7 @@ test("extension reload applies manager settings without reopening the parent", a
       const session = await open(root);
       const spawn = () =>
         tool<{ state: string }>(session, "coordinator_spawn", {
+          description: "Test spawn",
           path: "a",
           task: "Work",
           wait: true,

@@ -266,10 +266,7 @@ test("status tree sorts siblings, draws branch prefixes, and collapses descendan
   );
   assert.equal(rows.find((row) => row.path === "/root/a")?.prefix, "├ ");
   assert.equal(rows.at(-1)?.prefix, "└ ");
-  assert.match(
-    rows.find((row) => row.path === "/root/running/paused-child")?.prefix ?? "",
-    /│ └ /,
-  );
+  assert.match(rows.find((row) => row.path === "/root/running/paused-child")?.prefix ?? "", /│ └ /);
   assert.equal(
     rows.find((row) => row.path === "/root/running/paused-child")?.thread?.state,
     "paused",
@@ -1049,12 +1046,52 @@ test("agent tree uses two lines for right-aligned identity metrics and full-widt
   const lines = dialog.render(100).map((line) => plain([line]));
   const identityIndex = lines.findIndex((line) => line.includes("/root/a"));
   assert.ok(identityIndex >= 0);
-  assert.match(lines[identityIndex], /anthropic\/claude-sonnet:high/);
+  // The main row carries differentiating info only; the near-constant model string
+  // lives on the environment line together with the status sentence.
+  assert.doesNotMatch(lines[identityIndex], /anthropic\/claude-sonnet/);
   assert.ok(!lines[identityIndex].includes("Reading src/app.ts"));
   assert.match(lines[identityIndex], /↑120 ↓45 \$0\.0123\s*│?$/);
-  assert.match(lines[identityIndex + 1], /Reading src\/app.ts/);
+  assert.match(lines[identityIndex + 1], /anthropic\/claude-sonnet:high · Reading src\/app.ts/);
   assert.doesNotMatch(lines[identityIndex + 1], /↑120|↓45|\$0\.0123/);
-  assert.ok(lines[identityIndex + 1].includes(threads[0]!.status!));
+  // The model prefix can push a very long status past the terminal edge; the
+  // visible head of the status must still make it onto the environment line.
+  assert.ok(lines[identityIndex + 1].includes("Reading src/app.ts"));
+});
+
+test("agent tree shows the description on the main row and model plus status below it", () => {
+  const threads = [
+    thread("/root/a", {
+      parent: "/root",
+      description: "Probe auth headers",
+      model: "anthropic/claude-sonnet",
+      thinkingLevel: "high",
+      status: "Completed; session retained",
+      state: "completed",
+    }),
+  ];
+  const dialog = new StatusDialog(
+    host(18, () => {}),
+    theme,
+    service(() => threads),
+    () => {},
+  );
+  const lines = dialog.render(100).map((line) => plain([line]));
+  const identityIndex = lines.findIndex((line) => line.includes("/root/a"));
+  assert.ok(identityIndex >= 0);
+  assert.match(lines[identityIndex], /\/root\/a\s+Probe auth headers\s+completed/);
+  assert.doesNotMatch(lines[identityIndex], /anthropic\/claude-sonnet/);
+  assert.match(
+    lines[identityIndex + 1],
+    /anthropic\/claude-sonnet:high · Completed; session retained/,
+  );
+  // A running thread keeps its live housekeeping summary on the environment line.
+  threads[0]!.state = "running";
+  threads[0]!.summary = "Running the auth suite";
+  threads[0]!.status = "";
+  const live = dialog.render(100).map((line) => plain([line]));
+  const liveIndex = live.findIndex((line) => line.includes("/root/a"));
+  assert.match(live[liveIndex + 1], /anthropic\/claude-sonnet:high · Running the auth suite/);
+  assert.ok(!live[liveIndex + 1].includes("Completed"));
 });
 
 test("Ctrl+C in the tree stops every live agent once via its top-most live ancestor and is hinted", async () => {

@@ -88,7 +88,7 @@ test(
         // .1 native cost must remain outside the standalone subagent widget.
         await session.prompt("Record a main-agent turn before delegated work");
         assert.equal(lastValue(updates), "💵 $0.0000");
-        const first = await tool<ThreadView>(session, "worker_spawn", {
+        const first = await tool<ThreadView>(session, "worker_spawn", { description: "Test spawn", 
           path: "worker",
           task: "First run",
           wait: true,
@@ -164,7 +164,7 @@ test(
       },
       async ({ cwd, errors, open, tool }) => {
         const session = await open(SessionManager.create(cwd));
-        await tool(session, "worker_spawn", {
+        await tool(session, "worker_spawn", { description: "Test spawn", 
           path: "worker",
           task: "First run",
           wait: true,
@@ -208,7 +208,7 @@ test(
       },
       async ({ cwd, directory, errors, open, tool }) => {
         const session = await open(SessionManager.create(cwd));
-        await tool(session, "worker_spawn", {
+        await tool(session, "worker_spawn", { description: "Test spawn", 
           path: "worker",
           task: "First run",
           wait: true,
@@ -262,7 +262,7 @@ test(
       async ({ cwd, errors, open, tool }) => {
         const session = await open(SessionManager.create(cwd));
         assert.equal(lastValue(updates), "💵 $0.0000");
-        await tool(session, "worker_spawn", {
+        await tool(session, "worker_spawn", { description: "Test spawn", 
           path: "worker",
           task: "First run",
           wait: true,
@@ -303,7 +303,7 @@ test("default status key publishes before startup completes and Pi status includ
     await reloadSettings(session);
     assert.equal(statuses.get(WIDGET_ID), "💵 $0.0000");
     statuses.clear(); // Startup must republish even if a consumer lost the initial update.
-    await tool(session, "worker_spawn", { path: "worker", task: "Cost", wait: true });
+    await tool(session, "worker_spawn", { description: "Test spawn",  path: "worker", task: "Cost", wait: true });
     await tool(session, "agent_wait", { path: "worker" });
     assert.equal(statuses.get(WIDGET_ID), "💵 $0.5000");
     await writeFile(path.join(directory, "subagent-manager", "settings.json"), JSON.stringify({ costDisplay: "pi-status", costValue: "total" }));

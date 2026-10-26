@@ -111,6 +111,7 @@ test(
           rootCalls++;
           return rootCalls === 1
             ? toolUse(0.01, "spawn-worker", "worker_spawn", {
+                description: "Test spawn",
                 path: "worker",
                 task: "First run",
                 wait: true,
@@ -185,6 +186,7 @@ test(
         assert.deepEqual(registry(restored).threads, []);
         approximately(total(restored), 0.8); // Reaping must not remove historical spend.
         const replacement = await tool<ThreadView>(session, "worker_spawn", {
+          description: "Test spawn",
           path: "worker",
           task: "Replacement run",
           wait: true,
@@ -220,12 +222,14 @@ test(
         const root = SessionManager.create(cwd);
         const session = await open(root);
         const parent = await tool<ThreadView>(session, "worker_spawn", {
+          description: "Test spawn",
           path: "team",
           task: "Parent work",
           wait: true,
         });
         await tool(session, "agent_wait", { path: "team" });
         const child = await tool<ThreadView>(session, "worker_spawn", {
+          description: "Test spawn",
           path: "team/child",
           task: "Nested work",
           wait: true,
@@ -273,6 +277,7 @@ test(
         const root = SessionManager.create(cwd);
         const session = await open(root);
         const paused = await tool<ThreadView>(session, "worker_spawn", {
+          description: "Test spawn",
           path: "worker",
           task: "Pause",
           wait: true,
@@ -332,6 +337,7 @@ test(
         const root = SessionManager.create(cwd);
         const session = await open(root);
         const spawning = tool<ThreadView>(session, "worker_spawn", {
+          description: "Test spawn",
           path: "worker",
           task: "Continue until stopped",
           wait: true,

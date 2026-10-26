@@ -82,6 +82,7 @@ async function scenario(
           return request.pathCall === 1 ? toolCall("read", { path: "notes.txt" }) : finish;
         if (request.pathCall === 1)
           return toolCall("worker_spawn", {
+            description: "Test spawn",
             path: "reader",
             task: "Read the project notes",
             wait: false,
@@ -254,6 +255,7 @@ test(
           }
           if (request.pathCall === 1)
             return toolCall("worker_spawn", {
+              description: "Test spawn",
               path: "reader",
               task: "Read the project notes",
               wait: false,

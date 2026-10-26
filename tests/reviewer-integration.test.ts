@@ -66,6 +66,7 @@ test(
         await writeFile(path.join(cwd, ".pi", "modes.json"), JSON.stringify(modes));
         const session = await open(SessionManager.create(cwd));
         const thread = await tool<ThreadView>(session, "reviewer_spawn", {
+          description: "Test spawn",
           path: "review",
           task: "TARGET: working-tree\nFocus on the new spawn parameter handling.",
           wait: true,

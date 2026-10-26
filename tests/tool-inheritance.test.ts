@@ -102,7 +102,7 @@ text("CHILD_TOOL_PARITY_OK");`;
       extensionFactories: [external, createCodemodeExtension(), createToolSearchExtension()],
       onRequest(request) {
         if (!request.path) return request.pathCall === 1
-          ? reply("worker_spawn", { path: "probe", task: "Test", wait: true }) : reply();
+          ? reply("worker_spawn", { description: "Test spawn",  path: "probe", task: "Test", wait: true }) : reply();
         if (request.pathCall === 1) {
           assert.ok(request.toolNames.includes("codemode"));
           assert.ok(request.toolNames.includes("extension_echo"));
@@ -165,10 +165,10 @@ test("detached children and grandchildren inherit tools while unsafe model-only 
     ],
     onRequest(request) {
       if (!request.path) return request.pathCall === 1
-        ? reply("worker_spawn", { path: "detached", task: "Test", wait: false }) : reply();
+        ? reply("worker_spawn", { description: "Test spawn",  path: "detached", task: "Test", wait: false }) : reply();
       assert.ok(request.toolNames.includes("model_only_context"));
       if (request.path === "/root/detached") {
-        if (request.pathCall === 1) return reply("worker_spawn", { path: "nested", task: "Test", wait: true });
+        if (request.pathCall === 1) return reply("worker_spawn", { description: "Test spawn",  path: "nested", task: "Test", wait: true });
         assert.match(request.messagesText, /"path":"\/root\/detached\/nested"/);
         return reply();
       }

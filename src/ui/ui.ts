@@ -245,7 +245,7 @@ function agentLine(
     nerdFontIcons,
     agentProgressIcon(thread, nerdFontIcons, Date.now(), animate, loaderStyle),
   );
-  const left = `${row.prefix}${badge} ${agentPath(thread.path, thread.color, theme)} ${theme.fg(agentStateColor(thread.state), `[${sanitizeText(thread.state)}]`)} ${sanitizeText(threadActivity(thread, thread.task))}`;
+  const left = `${row.prefix}${badge} ${agentPath(thread.path, thread.color, theme)} ${theme.fg(agentStateColor(thread.state), `[${sanitizeText(thread.state)}]`)} ${sanitizeText(threadActivity(thread, thread.description ?? thread.task))}`;
   return fitLine(left, theme.fg("muted", threadMetrics(thread)), width);
 }
 
@@ -391,7 +391,9 @@ export function renderAgentSummary(
         return theme.fg(color, `${progress ? `${progress} ` : ""}${counts[state]} ${state}`);
       })
       .join(theme.fg("muted", ", ")) +
-    (showBrowserHint && counts.running > 0 ? theme.fg("muted", expandHint ? " · ← expand" : " · ← browser") : "");
+    (showBrowserHint && counts.running > 0
+      ? theme.fg("muted", expandHint ? " · ← expand" : " · ← browser")
+      : "");
   const right = theme.fg("muted", `↑${formatCount(input)} ↓${formatCount(output)}`);
   return [fitLine(left, right, Math.max(0, width))];
 }

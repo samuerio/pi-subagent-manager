@@ -72,8 +72,8 @@ function normalizeSavedSpec(
     tools: Array.isArray(stored?.tools) ? [...stored.tools] : (live?.tools ?? []),
     skills: Array.isArray(stored?.skills) ? [...stored.skills] : (live?.skills ?? []),
     role: stored?.role ?? live?.role ?? "subagents",
-    ...(stored?.color ?? live?.color ? { color: stored?.color ?? live?.color } : {}),
-    ...(stored?.icon ?? live?.icon ? { icon: stored?.icon ?? live?.icon } : {}),
+    ...((stored?.color ?? live?.color) ? { color: stored?.color ?? live?.color } : {}),
+    ...((stored?.icon ?? live?.icon) ? { icon: stored?.icon ?? live?.icon } : {}),
   };
 }
 
@@ -237,6 +237,7 @@ export class ThreadManager {
         state: current.state,
         task: current.task,
         status: current.status,
+        description: current.description,
         output: current.output,
         error: current.error,
         createdAt: current.createdAt,
@@ -323,7 +324,15 @@ export class ThreadManager {
 
   async spawn(
     caller: string,
-    args: { path: string; type: string; task: string; wait?: boolean; timeoutMs?: number },
+    args: {
+      path: string;
+      type: string;
+      task: string;
+      /** Short label for call lines, widget and tree rows; defaults to the task text in UI. */
+      description?: string;
+      wait?: boolean;
+      timeoutMs?: number;
+    },
     signal?: AbortSignal,
   ): Promise<ThreadView> {
     this.assertLive();
@@ -378,6 +387,7 @@ export class ThreadManager {
         icon: type.icon,
         state: "starting",
         task: args.task,
+        ...(args.description !== undefined ? { description: args.description } : {}),
         status: "Starting",
         createdAt: now,
         costId: randomUUID(),
@@ -764,7 +774,8 @@ export class ThreadManager {
                   this.disposed ||
                   this.records.get(record.view.path) !== record ||
                   (diagnosticDriver ? record.driver !== diagnosticDriver : signal.aborted)
-                ) return;
+                )
+                  return;
                 record.view.diagnostics = [
                   ...(record.view.diagnostics ?? []),
                   event.diagnostic,
@@ -799,7 +810,10 @@ export class ThreadManager {
               if (active(record.view) && !record.pauseRequested) {
                 record.view.status = event.text;
                 this.touch(record);
-                this.recordActivity(record, event.detail ? `${event.text} ${event.detail}` : event.text);
+                this.recordActivity(
+                  record,
+                  event.detail ? `${event.text} ${event.detail}` : event.text,
+                );
               }
             },
             ...(parentSessionFile ? { parentSessionFile } : {}),
@@ -880,7 +894,8 @@ export class ThreadManager {
   private recordActivity(record: Record, line: string): void {
     const recent = (record.recentActivity ??= []);
     recent.push(line.slice(0, 600));
-    if (recent.length > RECENT_ACTIVITY_LIMIT) recent.splice(0, recent.length - RECENT_ACTIVITY_LIMIT);
+    if (recent.length > RECENT_ACTIVITY_LIMIT)
+      recent.splice(0, recent.length - RECENT_ACTIVITY_LIMIT);
     if (!this.options.onActivity || this.disposed) return;
     try {
       this.options.onActivity({

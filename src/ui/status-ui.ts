@@ -26,7 +26,7 @@ import {
 } from "./dialog.ts";
 import type { ThreadService } from "../types.ts";
 import type { LoaderStyle } from "../prefs/settings.ts";
-import { buildStatusTree, threadActivity, type StatusRow } from "./thread-tree.ts";
+import { buildStatusTree, modelLabel, type StatusRow } from "./thread-tree.ts";
 import {
   AGENT_PROGRESS_INTERVAL,
   agentProgressIcon,
@@ -140,15 +140,14 @@ export class StatusDialog {
 
   private syncRefresh(): void {
     if (!this.refreshing) return;
-    const delay =
-      this.service
-        .list()
-        .some(
-          (thread) =>
-            thread.path !== ROOT && (thread.state === "starting" || thread.state === "running"),
-        )
-        ? AGENT_PROGRESS_INTERVAL
-        : 1000;
+    const delay = this.service
+      .list()
+      .some(
+        (thread) =>
+          thread.path !== ROOT && (thread.state === "starting" || thread.state === "running"),
+      )
+      ? AGENT_PROGRESS_INTERVAL
+      : 1000;
     if (this.timer !== undefined && this.refreshDelay === delay) return;
     this.stopRefresh();
     this.refreshDelay = delay;
@@ -295,29 +294,50 @@ export class StatusDialog {
           this.nerdFontIcons,
           progress,
         );
-    const identity = [
-      thread.path,
-      `${thread.model ?? "model pending"}${thread.thinkingLevel ? `:${thread.thinkingLevel}` : ""}`,
-    ]
-      .map((part) => dialogText(part))
-      .join("  ");
+    const metrics = this.theme.fg(base, threadMetrics(thread));
+    const metricWidth = visibleWidth(metrics);
+    const stateText = dialogText(thread.state);
+    const description = thread.description ? dialogText(thread.description) : "";
+    const headBadge = [selected ? this.theme.fg("accent", head) : head, badge].join("");
+    const pathPart = this.theme.fg(
+      inactive ? base : selected ? "accent" : "text",
+      `  ${dialogText(thread.path)}  `,
+    );
+    // Differentiating info lives on the main row (path, description, state, metrics);
+    // the near-constant model string drops to the environment line together with the
+    // status sentence. The description is truncated to the width left after the rest.
+    const descAvail = Math.max(
+      0,
+      width -
+        metricWidth -
+        1 -
+        visibleWidth(headBadge) -
+        visibleWidth(pathPart) -
+        visibleWidth(stateText) -
+        2,
+    );
+    const descText = description && descAvail > 0 ? truncateToWidth(description, descAvail) : "";
     const identityLine = [
-      selected ? this.theme.fg("accent", head) : head,
-      badge,
-      this.theme.fg(inactive ? base : selected ? "accent" : "text", `  ${identity}  `),
-      this.theme.fg(inactive ? hint : "muted", dialogText(thread.state)),
+      headBadge,
+      pathPart,
+      descText ? `${this.theme.fg(selected ? "accent" : "text", descText)}  ` : "",
+      this.theme.fg(inactive ? hint : "muted", stateText),
     ].join("");
     // Continue the tree's vertical guides without repeating the branch or selection marker.
     const stem = row.prefix.replace("├ ", "│ ").replace("└ ", "  ");
-    const activity = ` ${stem}  ${dialogText(threadActivity(thread))}`;
-    const metrics = this.theme.fg(base, threadMetrics(thread));
-    const metricWidth = visibleWidth(metrics);
+    const summary = typeof thread.summary === "string" ? thread.summary.trim() : "";
+    const envTail =
+      !inactive && summary ? summary : thread.status || (thread.description ? "" : thread.task);
+    const env = dialogText(envTail ? `${modelLabel(thread)} · ${envTail}` : modelLabel(thread));
+    const activity = ` ${stem}  ${env}`;
     const first =
       metricWidth >= width
         ? truncateToWidth(metrics, width, "")
         : (() => {
             const left = truncateToWidth(identityLine, width - metricWidth - 1);
-            return left + " ".repeat(Math.max(1, width - visibleWidth(left) - metricWidth)) + metrics;
+            return (
+              left + " ".repeat(Math.max(1, width - visibleWidth(left) - metricWidth)) + metrics
+            );
           })();
     const second = truncateToWidth(
       this.theme.fg(inactive ? base : selected ? "accent" : "muted", activity),
@@ -363,7 +383,9 @@ export class StatusDialog {
       height,
       this.heading(rows, start, treeCount),
       body,
-      this.navigation ? "Esc main · ↑↓ select · ←→ fold · → widget · i Actions · Ctrl+C stop all" : FOOTER,
+      this.navigation
+        ? "Esc main · ↑↓ select · ←→ fold · → widget · i Actions · Ctrl+C stop all"
+        : FOOTER,
     );
   }
 

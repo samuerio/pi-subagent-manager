@@ -12,7 +12,12 @@ export function threadActivity(
 ): string {
   const active = thread.state === "starting" || thread.state === "running";
   const summary = typeof thread.summary === "string" ? thread.summary.trim() : "";
-  return (active && summary) || fallback;
+  if (active && summary) return summary;
+  // The description labels what the agent was asked to do; the status keeps its
+  // operational meaning (session retained, no handback). Show both, not either.
+  if (thread.description)
+    return thread.status ? `${thread.description} · ${thread.status}` : thread.description;
+  return fallback;
 }
 
 export interface StatusRow {
@@ -170,4 +175,11 @@ export function buildStatusTree(
   const missed = [...nodes.values()].filter((node) => !visited.has(node.path));
   if (missed.length) walk(missed, [], true);
   return rows;
+}
+
+/** `provider/model:level`, or `model pending` before the child reports its first token. */
+export function modelLabel(thread: ThreadView): string {
+  return thread.model
+    ? `${thread.model}${thread.thinkingLevel ? `:${thread.thinkingLevel}` : ""}`
+    : "model pending";
 }

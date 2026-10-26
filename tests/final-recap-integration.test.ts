@@ -33,14 +33,16 @@ const spawn = (count = 1, wait = false): AssistantMessage => ({
   ...answer(""), stopReason: "toolUse",
   content: Array.from({ length: count }, (_, i) => ({
     type: "toolCall", id: `spawn-${i}`, name: "worker_spawn",
-    arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait },
+    arguments: {
+      description: "Test spawn", path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait },
   })),
 });
 const timedSpawn = (count = 1): AssistantMessage => ({
   ...answer(""), stopReason: "toolUse",
   content: Array.from({ length: count }, (_, i) => ({
     type: "toolCall", id: `timed-spawn-${i}`, name: "worker_spawn",
-    arguments: { path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait: false, timeoutMs: 300000 },
+    arguments: {
+      description: "Test spawn", path: `worker-${i}`, type: "worker", task: `Task ${i}`, wait: false, timeoutMs: 300000 },
   })),
 });
 const summaryIds = (manager: SessionManager) => messages(manager, SUMMARY).map(
@@ -393,7 +395,7 @@ test(
           if (request.path === "/root/worker-0/leaf") return leaf.promise;
           if (request.path === "/root/worker-0")
             return request.pathCall === 1
-              ? toolUse("spawn-leaf", "worker_spawn", {
+              ? toolUse("spawn-leaf", "worker_spawn", { description: "Test spawn", 
                   path: "leaf",
                   task: "Nested task",
                   wait: false,
@@ -628,7 +630,7 @@ test(
           if (rootCalls === 2) return answer("Initial work is delegated");
           if (rootCalls === 3) {
             assert.match(request.messagesText, /continue any unfinished work/);
-            return toolUse("continue-next-batch", "worker_spawn", {
+            return toolUse("continue-next-batch", "worker_spawn", { description: "Test spawn", 
               path: "next",
               task: "Dependent unfinished work",
               wait: false,

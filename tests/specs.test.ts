@@ -71,7 +71,13 @@ test("each agent registers one spawn tool with no type parameter", () => {
   );
   for (const tool of spawnTools) {
     const properties = (tool.parameters as any).properties;
-    assert.deepEqual(Object.keys(properties).sort(), ["path", "task", "timeoutMs", "wait"]);
+    assert.deepEqual(Object.keys(properties).sort(), [
+      "description",
+      "path",
+      "task",
+      "timeoutMs",
+      "wait",
+    ]);
     assert.equal("type" in properties, false, tool.name);
     assert.ok(tool.description.length > 100, tool.name);
     assert.equal(tool.name.startsWith("agent_"), false);

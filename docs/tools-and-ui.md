@@ -4,27 +4,31 @@ Use [commands](#commands) to manage agents yourself, or let the main agent use t
 
 ## Model-facing tools
 
-| Tool             | Purpose                                              |
-| ---------------- | ---------------------------------------------------- |
-| `task_spawn`     | Start a `task` child. Waits by default.              |
-| `finder_spawn`   | Start a `finder` child (code search).                |
-| `oracle_spawn`   | Start an `oracle` child (reasoning advisor).         |
-| `librarian_spawn`| Start a `librarian` child (external repositories).   |
-| `reviewer_spawn` | Start a `reviewer` child. Give the task a `TARGET:` first line. |
-| `agent_wait`     | Wait for settlement; optional `timeoutMs`            |
-| `agent_steer`  | Send `{path, message?, timeoutMs?}`; queues/resumes and/or re-arms timeout|
-| `agent_status` | Inspect one path or list visible threads             |
-| `agent_update` | Child: report progress                               |
-| `agent_pause`  | Child: pause without an answer                       |
-| `agent_stop`   | Cancel a descendant and its subtree                  |
-| `agent_output` | Page through long final answers by character offset  |
+| Tool              | Purpose                                                                    |
+| ----------------- | -------------------------------------------------------------------------- |
+| `task_spawn`      | Start a `task` child. Waits by default.                                    |
+| `finder_spawn`    | Start a `finder` child (code search).                                      |
+| `oracle_spawn`    | Start an `oracle` child (reasoning advisor).                               |
+| `librarian_spawn` | Start a `librarian` child (external repositories).                         |
+| `reviewer_spawn`  | Start a `reviewer` child. Give the task a `TARGET:` first line.            |
+| `agent_wait`      | Wait for settlement; optional `timeoutMs`                                  |
+| `agent_steer`     | Send `{path, message?, timeoutMs?}`; queues/resumes and/or re-arms timeout |
+| `agent_status`    | Inspect one path or list visible threads                                   |
+| `agent_update`    | Child: report progress                                                     |
+| `agent_pause`     | Child: pause without an answer                                             |
+| `agent_stop`      | Cancel a descendant and its subtree                                        |
+| `agent_output`    | Page through long final answers by character offset                        |
 
-Every spawn verb takes the same `{path, task, wait?, timeoutMs?}` object. There is no `type` field:
-the tool name *is* the agent, so a child can only start agents its own allowlist exposes.
+Every spawn verb takes the same `{path, description, task, wait?, timeoutMs?}` object. There is no
+`type` field: the tool name _is_ the agent, so a child can only start agents its own allowlist
+exposes. `description` is required: a one-line label of what the child will do, shown on the call
+line, in the Agents widget and in the Agents tree, so you can follow parallel agents without
+opening them.
 
 ```json
 {
   "path": "controller-security-research",
+  "description": "Research controller security exposure",
   "task": "Investigate controller security and plan the change",
   "wait": false
 }
@@ -32,6 +36,10 @@ the tool name *is* the agent, so a child can only start agents its own allowlist
 
 Then `agent_wait` or `agent_status` on `/root/controller-security-research`. The model and thinking
 level come from the `modes.json` pin for that agent's role; see [settings](settings.md#model-routing-roles-in-modesjson).
+
+Spawn calls render compactly: the call line shows the agent name plus the `description`; the result
+collapses to one line (state, description, elapsed time, tokens, cost) and expands to a status
+line, the child's final output as Markdown, and the child's session file path.
 
 ### Reviewer targets
 
@@ -65,14 +73,14 @@ A spawn tool accepts an optional `timeoutMs` (30000–300000, i.e. 30s–5min; o
 
 ## Commands
 
-| Command                       | Does |
-| ----------------------------- | ---- |
-| `/agents`, `/agents settings` | Open [settings](settings.md). |
-| `/agents tree [path]`         | Open the live tree; an optional path selects an agent. |
-| `/agents fork:<agent> <task>`  | Start an agent with your current conversation as context. |
-| `/agents fresh:<agent> <task>` | Start an agent without inherited conversation context. |
-| `/agents reload`              | Reload settings; show diagnostics. |
-| `/agents reap`                | Confirm removal of eligible completed agents from the retained tree. |
+| Command                        | Does                                                                 |
+| ------------------------------ | -------------------------------------------------------------------- |
+| `/agents`, `/agents settings`  | Open [settings](settings.md).                                        |
+| `/agents tree [path]`          | Open the live tree; an optional path selects an agent.               |
+| `/agents fork:<agent> <task>`  | Start an agent with your current conversation as context.            |
+| `/agents fresh:<agent> <task>` | Start an agent without inherited conversation context.               |
+| `/agents reload`               | Reload settings; show diagnostics.                                   |
+| `/agents reap`                 | Confirm removal of eligible completed agents from the retained tree. |
 
 Both `fork:` and `fresh:` autocomplete every built-in agent (`task`, `finder`, `oracle`, `librarian`, `reviewer`) and start detached agents: you can keep working in the main conversation while they run.
 

@@ -3,6 +3,8 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ThreadManager } from "./manager.ts";
 import { listAgentSpecs, spawnToolName } from "../agents/specs.ts";
 import type { AgentSpec, ThreadView } from "../types.ts";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { renderSpawnCall, renderSpawnResult } from "../ui/spawn-render.ts";
 
 const path = Type.String({ description: "Absolute agent path, or name relative to the caller" });
 const text = Type.String({ minLength: 1 });
@@ -27,6 +29,9 @@ const SpawnParams = Type.Object({
   path: Type.String({
     description:
       "Task-based kebab-case path (e.g. /root/controller-security-research), or a task name relative to the caller",
+  }),
+  description: Type.String({
+    description: "A very short description of the task that can be displayed to the user.",
   }),
   task: text,
   wait: Type.Optional(Type.Boolean()),
@@ -71,9 +76,13 @@ export function agentTools(getManager: () => ThreadManager, caller: string): Too
   });
   const spawnTools = listAgentSpecs().map((spec) => {
     const toolName = spawnToolName(spec.name);
-    return make(toolName, spawnDescription(spec, toolName), SpawnParams, async (params, signal) =>
-      result(compact(await threads().spawn({ ...params, type: spec.name }, signal))),
-    );
+    return {
+      ...make(toolName, spawnDescription(spec, toolName), SpawnParams, async (params, signal) =>
+        result(compact(await threads().spawn({ ...params, type: spec.name }, signal))),
+      ),
+      renderCall: (args: unknown, theme: Theme) => renderSpawnCall(args, theme, toolName),
+      renderResult: renderSpawnResult,
+    };
   });
   return [
     ...spawnTools,
