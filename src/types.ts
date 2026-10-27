@@ -1,12 +1,26 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export const THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 /** Model routing role pinned in modes.json: the advisor or the general worker pool. */
 export const AGENT_ROLES = ["oracle", "subagents"] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
-export const AGENT_SPEC_NAMES = ["task", "finder", "oracle", "librarian", "reviewer"] as const;
+export const AGENT_SPEC_NAMES = [
+  "task",
+  "finder",
+  "oracle",
+  "librarian",
+  "reviewer",
+] as const;
 export type AgentSpecName = (typeof AGENT_SPEC_NAMES)[number];
 /**
  * A built-in agent. Specs are code constants (see src/agents/specs.ts): there is
@@ -34,7 +48,8 @@ export interface AgentSpec {
   /** Optional literal Nerd Font glyph; displayed only when the labs setting is enabled. */
   icon?: string;
 }
-export type ThreadState = "starting" | "running" | "paused" | "completed" | "failed" | "stopped";
+export type ThreadState =
+  "starting" | "running" | "paused" | "completed" | "failed" | "stopped";
 export interface ChildDiagnostic {
   level: "info" | "warning" | "error";
   message: string;
@@ -108,6 +123,24 @@ export type DriverEvent =
       /** Streaming message_update snapshot. Omit for authoritative message_end. */
       partial?: boolean;
     };
+/** Ephemeral read-only transcript state; never part of registry/delivery events. */
+/** One bounded child tool call in a live spawn update; never persisted. */
+export interface LiveToolCall {
+  name: string;
+  /** Data-side pre-formatted single-line summary (bounded); the renderer only truncates width. */
+  summary: string;
+  state: "running" | "completed";
+  isError?: boolean;
+  /** True when this call ran inside another child tool call. */
+  nested: boolean;
+}
+/** Live-only details shape for in-flight spawn updates; the settled result strips these fields. */
+export type SpawnLiveDetails = ThreadView & {
+  outputTruncated?: boolean;
+  recentCalls?: LiveToolCall[];
+  /** Tail of the latest assistant text, data-side bounded. */
+  assistantPreview?: string;
+};
 /** Ephemeral read-only transcript state; never part of registry/delivery events. */
 export interface TranscriptToolState {
   toolCallId: string;
@@ -200,7 +233,10 @@ export interface ThreadService {
   output(path: string): string;
   transcript(path: string): Promise<string>;
   /** Optional for portable adapters; the runtime manager always implements this. */
-  observeTranscript?(path: string, listener: TranscriptListener): Promise<TranscriptObservation>;
+  observeTranscript?(
+    path: string,
+    listener: TranscriptListener,
+  ): Promise<TranscriptObservation>;
   spawn(
     args: {
       path: string;
@@ -209,19 +245,34 @@ export interface ThreadService {
       description?: string;
       wait?: boolean;
       timeoutMs?: number;
+      /** Called synchronously with the canonical view before a blocking wait starts. */
+      onStart?: (view: ThreadView) => void;
     },
     signal?: AbortSignal,
   ): Promise<ThreadView>;
   /** message and/or timeoutMs (30s–5min). timeoutMs alone only re-arms a running child's report-only timeout. */
-  steer(path: string, message?: string, timeoutMs?: number): Promise<ThreadView>;
-  wait(path: string, timeoutMs?: number, signal?: AbortSignal): Promise<ThreadView>;
+  steer(
+    path: string,
+    message?: string,
+    timeoutMs?: number,
+  ): Promise<ThreadView>;
+  wait(
+    path: string,
+    timeoutMs?: number,
+    signal?: AbortSignal,
+  ): Promise<ThreadView>;
   update(message: string): ThreadView;
   pause(reason: string): ThreadView;
   stop(path: string): Promise<ThreadView>;
 }
 export type DriverFactory = (options: DriverOptions) => Promise<AgentDriver>;
 export type ThreadEvent =
-  | { kind: "diagnostic"; thread: ThreadView; diagnostic: ChildDiagnostic; recipient: string }
+  | {
+      kind: "diagnostic";
+      thread: ThreadView;
+      diagnostic: ChildDiagnostic;
+      recipient: string;
+    }
   | { kind: "change"; thread: ThreadView }
   | { kind: "metrics"; thread: ThreadView }
   | { kind: "update"; thread: ThreadView; message: string; recipient: string }

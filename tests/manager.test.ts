@@ -107,7 +107,10 @@ function fixture(extra: Partial<ManagerOptions> = {}) {
           });
         },
         steer: async (message) => {
-          assert.ok(data.runs.length, "initial task must be prompted before steering");
+          assert.ok(
+            data.runs.length,
+            "initial task must be prompted before steering",
+          );
           data.steering.push(message);
         },
         snapshot: () => data.messages,
@@ -148,15 +151,30 @@ test("spawn stamps the role pin so an async spawn reports its model immediately"
 
 test("spawn snapshots only lexical parent; independent roots have no root context", async () => {
   const { manager, drivers, root } = fixture();
-  await manager.spawn("/root", { path: "worker", type: "worker", task: "do work", wait: false });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "do work",
+    wait: false,
+  });
   await tick();
   assert.deepEqual(drivers.get("/root/worker")!.options.inherited, root);
   root.push(user("later root message"));
   assert.equal(drivers.get("/root/worker")!.options.inherited.length, 1);
-  await manager.spawn("/root", { path: "/k", type: "worker", task: "separate", wait: false });
+  await manager.spawn("/root", {
+    path: "/k",
+    type: "worker",
+    task: "separate",
+    wait: false,
+  });
   await tick();
   assert.deepEqual(drivers.get("/k")!.options.inherited, []);
-  await manager.spawn("/root", { path: "/k/l", type: "worker", task: "nested", wait: false });
+  await manager.spawn("/root", {
+    path: "/k/l",
+    type: "worker",
+    task: "nested",
+    wait: false,
+  });
   await tick();
   assert.deepEqual(
     drivers.get("/k/l")!.options.inherited,
@@ -170,7 +188,11 @@ test("spawn snapshots only lexical parent; independent roots have no root contex
     drivers.get("/k")!.driver.sessionFile,
   );
   await assert.rejects(
-    manager.spawn("/root/worker", { path: "/k/forbidden", type: "worker", task: "cross-tree" }),
+    manager.spawn("/root/worker", {
+      path: "/k/forbidden",
+      type: "worker",
+      task: "cross-tree",
+    }),
     /descendants/,
   );
   await manager.shutdown();
@@ -178,7 +200,11 @@ test("spawn snapshots only lexical parent; independent roots have no root contex
 
 test("pause stops without handback; completed and paused revive SAME driver", async () => {
   const { manager, drivers, events } = fixture();
-  const waiting = manager.spawn("/root", { path: "worker", type: "worker", task: "first" });
+  const waiting = manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "first",
+  });
   await tick();
   const data = drivers.get("/root/worker")!;
   manager.pause("/root/worker", "need feedback");
@@ -187,7 +213,11 @@ test("pause stops without handback; completed and paused revive SAME driver", as
   assert.equal(paused.state, "paused");
   assert.equal(paused.output, undefined);
   assert.equal(manager.output(paused.path), "");
-  assert.ok(events.some((event) => event.kind === "settled" && event.thread.state === "paused"));
+  assert.ok(
+    events.some(
+      (event) => event.kind === "settled" && event.thread.state === "paused",
+    ),
+  );
   await manager.steer("/root", paused.path, "second");
   await tick();
   data.finish();
@@ -206,11 +236,20 @@ test("pause stops without handback; completed and paused revive SAME driver", as
 
 test("busy steering queues while progress stays nonfinal and goes to parent", async () => {
   const { manager, drivers, events } = fixture();
-  await manager.spawn("/root", { path: "worker", type: "worker", task: "task", wait: false });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "task",
+    wait: false,
+  });
   await manager.steer("/root", "worker", "more detail");
   assert.deepEqual(drivers.get("/root/worker")!.steering, ["more detail"]);
   manager.update("/root/worker", "halfway");
-  assert.ok(events.some((event) => event.kind === "update" && event.recipient === "/root"));
+  assert.ok(
+    events.some(
+      (event) => event.kind === "update" && event.recipient === "/root",
+    ),
+  );
   assert.equal(manager.get("worker").state, "running");
   await manager.shutdown();
 });
@@ -232,7 +271,12 @@ test("concurrent steer after failed startup reserves one restart and queues the 
         : driver,
   });
 
-  await manager.spawn("/root", { path: "worker", type: "worker", task: "first", wait: false });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "first",
+    wait: false,
+  });
   await tick();
   const first = manager.steer("/root", "worker", "retry");
   const second = manager.steer("/root", "worker", "queued");
@@ -252,20 +296,25 @@ test("nested child reopens its parent first; a failed parent open is retried lat
   let parentAttempts = 0;
   const childInherited: AgentMessage[][] = [];
   const parent = gated({ sessionFile: "/tmp/worker.jsonl" });
-  parent.driver.snapshot = () => parent.runs.map((text) => ({ ...user(text), timestamp: 0 }));
+  parent.driver.snapshot = () =>
+    parent.runs.map((text) => ({ ...user(text), timestamp: 0 }));
   const child = gated();
   const { manager } = fixture({
     createDriver: async (options) => {
       if (options.path === "/root/worker") {
         if (++parentAttempts === 1)
-          return new Promise<AgentDriver>((_resolve, reject) => (rejectParentOpen = reject));
+          return new Promise<AgentDriver>(
+            (_resolve, reject) => (rejectParentOpen = reject),
+          );
         return parent.driver;
       }
       childInherited.push(structuredClone(options.inherited));
       return child.driver;
     },
   });
-  manager.restore([saved("/root/worker", { sessionFile: "/tmp/saved-parent.jsonl" })]);
+  manager.restore([
+    saved("/root/worker", { sessionFile: "/tmp/saved-parent.jsonl" }),
+  ]);
 
   await manager.spawn("/root", {
     path: "worker/child",
@@ -286,7 +335,10 @@ test("nested child reopens its parent first; a failed parent open is retried lat
   assert.equal(parentAttempts, 2);
   assert.deepEqual(childInherited, [parent.driver.snapshot()]);
   child.release();
-  assert.equal((await manager.wait("/root", "worker/child")).state, "completed");
+  assert.equal(
+    (await manager.wait("/root", "worker/child")).state,
+    "completed",
+  );
   await manager.shutdown();
 });
 
@@ -299,7 +351,10 @@ test("restored nested child opens parent first but keeps its saved inherited sna
     createDriver: async (options) => {
       order.push(options.path);
       if (options.path === "/root/parent")
-        return gated({ prompt: async () => {}, snapshot: () => [user("live parent")] }).driver;
+        return gated({
+          prompt: async () => {},
+          snapshot: () => [user("live parent")],
+        }).driver;
       childInherited.push(structuredClone(options.inherited));
       return child.driver;
     },
@@ -313,13 +368,21 @@ test("restored nested child opens parent first but keeps its saved inherited sna
   assert.deepEqual(order, ["/root/parent", "/root/parent/child"]);
   assert.deepEqual(childInherited, [savedChildSnapshot]);
   child.release();
-  assert.equal((await manager.wait("/root", "parent/child")).state, "completed");
+  assert.equal(
+    (await manager.wait("/root", "parent/child")).state,
+    "completed",
+  );
   await manager.shutdown();
 });
 
 test("cancelling a wait or timing out does not stop detached child", async () => {
   const { manager, drivers } = fixture();
-  await manager.spawn("/root", { path: "worker", type: "worker", task: "task", wait: false });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "task",
+    wait: false,
+  });
   await tick();
   const abort = new AbortController();
   const waiting = manager.wait("/root", "worker", undefined, abort.signal);
@@ -333,7 +396,12 @@ test("cancelling a wait or timing out does not stop detached child", async () =>
 
 test("stop cascades but retains sessions, and children cannot wait on ancestors", async () => {
   const { manager, drivers } = fixture({ maxLevels: 4 });
-  await manager.spawn("/root", { path: "worker", type: "worker", task: "parent", wait: false });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "parent",
+    wait: false,
+  });
   await tick();
   await manager.spawn("/root/worker", {
     path: "child",
@@ -351,8 +419,14 @@ test("stop cascades but retains sessions, and children cannot wait on ancestors"
   await tick();
   drivers.get("/root/worker/finished")!.finish();
   await manager.wait("/root", "/root/worker/finished");
-  await assert.rejects(manager.wait("/root/worker/child", "/root/worker"), /descendants/);
-  await assert.rejects(manager.stop("/root/worker", "/root/worker"), /descendants/);
+  await assert.rejects(
+    manager.wait("/root/worker/child", "/root/worker"),
+    /descendants/,
+  );
+  await assert.rejects(
+    manager.stop("/root/worker", "/root/worker"),
+    /descendants/,
+  );
   assert.equal((await manager.stop("/root", "worker")).state, "stopped");
   assert.equal(manager.get("/root/worker/child").state, "stopped");
   assert.equal(manager.get("/root/worker/finished").state, "completed");
@@ -381,16 +455,39 @@ test("stop cascades but retains sessions, and children cannot wait on ancestors"
 test("duplicate concurrent spawn is rejected and concurrency/depth limits apply", async () => {
   const { manager } = fixture({ maxConcurrent: 1, maxDepth: 1 });
   const results = await Promise.allSettled([
-    manager.spawn("/root", { path: "worker", type: "worker", task: "task", wait: false }),
-    manager.spawn("/root", { path: "worker", type: "worker", task: "task", wait: false }),
+    manager.spawn("/root", {
+      path: "worker",
+      type: "worker",
+      task: "task",
+      wait: false,
+    }),
+    manager.spawn("/root", {
+      path: "worker",
+      type: "worker",
+      task: "task",
+      wait: false,
+    }),
   ]);
-  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(
+    results.filter((result) => result.status === "fulfilled").length,
+    1,
+  );
   await assert.rejects(
-    manager.spawn("/root", { path: "other", type: "worker", task: "task", wait: false }),
+    manager.spawn("/root", {
+      path: "other",
+      type: "worker",
+      task: "task",
+      wait: false,
+    }),
     /Concurrent/,
   );
   await assert.rejects(
-    manager.spawn("/root", { path: "worker/child", type: "worker", task: "task", wait: false }),
+    manager.spawn("/root", {
+      path: "worker/child",
+      type: "worker",
+      task: "task",
+      wait: false,
+    }),
     /depth/,
   );
   await manager.shutdown();
@@ -398,7 +495,12 @@ test("duplicate concurrent spawn is rejected and concurrency/depth limits apply"
 
 test("restoring a registry written by the file-based schema resumes with a usable spec", async () => {
   const first = fixture();
-  await first.manager.spawn("/root", { path: "legacy", type: "worker", task: "work", wait: false });
+  await first.manager.spawn("/root", {
+    path: "legacy",
+    type: "worker",
+    task: "work",
+    wait: false,
+  });
   await tick();
   const saved = first.manager.saved();
   await first.manager.shutdown();
@@ -437,14 +539,22 @@ test("restoring a registry written by the file-based schema resumes with a usabl
 
 test("save/restore retains definition snapshot and reopens JSONL on resume", async () => {
   const first = fixture();
-  await first.manager.spawn("/root", { path: "worker", type: "worker", task: "work", wait: false });
+  await first.manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "work",
+    wait: false,
+  });
   await tick();
   const saved = first.manager.saved();
   await first.manager.shutdown();
 
   const second = fixture();
   assert.throws(
-    () => second.manager.restore([{ ...saved[0], view: { ...saved[0].view, parent: "/wrong" } }]),
+    () =>
+      second.manager.restore([
+        { ...saved[0], view: { ...saved[0].view, parent: "/wrong" } },
+      ]),
     /Invalid saved parent/,
   );
   assert.deepEqual(second.manager.list(), []); // Restore is atomic on corrupt registries.
@@ -458,25 +568,50 @@ test("save/restore retains definition snapshot and reopens JSONL on resume", asy
     wait: false,
   });
   const pending = second.manager.saved();
-  const pendingChild = pending.find((thread) => thread.view.path === "/root/worker/child");
+  const pendingChild = pending.find(
+    (thread) => thread.view.path === "/root/worker/child",
+  );
   assert.ok(pendingChild);
-  assert.equal(Object.prototype.hasOwnProperty.call(pendingChild, "inherited"), false);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(pendingChild, "inherited"),
+    false,
+  );
   await second.manager.shutdown();
 
   const third = fixture();
   third.manager.restore(pending);
-  await third.manager.deliver("/root/worker", "child progress while parent is unopened");
-  assert.equal(third.drivers.get("/root/worker")!.messages.at(-1)?.role, "user");
-  assert.match(JSON.stringify(third.drivers.get("/root/worker")!.messages), /child progress/);
-  const inspected = JSON.parse(await third.manager.transcript("/root", "worker/child"));
+  await third.manager.deliver(
+    "/root/worker",
+    "child progress while parent is unopened",
+  );
+  assert.equal(
+    third.drivers.get("/root/worker")!.messages.at(-1)?.role,
+    "user",
+  );
+  assert.match(
+    JSON.stringify(third.drivers.get("/root/worker")!.messages),
+    /child progress/,
+  );
+  const inspected = JSON.parse(
+    await third.manager.transcript("/root", "worker/child"),
+  );
   assert.deepEqual(inspected, third.drivers.get("/root/worker")!.messages);
-  assert.deepEqual(third.drivers.get("/root/worker/child")!.options.inherited, inspected);
+  assert.deepEqual(
+    third.drivers.get("/root/worker/child")!.options.inherited,
+    inspected,
+  );
   await third.manager.steer("/root", "worker", "resume");
   await tick();
-  assert.equal(third.drivers.get("/root/worker")!.options.sessionFile, saved[0].view.sessionFile);
+  assert.equal(
+    third.drivers.get("/root/worker")!.options.sessionFile,
+    saved[0].view.sessionFile,
+  );
   await third.manager.steer("/root", "worker/child", "resume child");
   await tick();
-  assert.deepEqual(third.drivers.get("/root/worker/child")!.options.inherited, inspected);
+  assert.deepEqual(
+    third.drivers.get("/root/worker/child")!.options.inherited,
+    inspected,
+  );
   third.drivers.get("/root/worker/child")!.finish();
   await third.manager.wait("/root", "worker/child");
   third.drivers.get("/root/worker")!.finish();
@@ -490,7 +625,12 @@ test("retained thread resumes its saved definition even after the type is remove
     tools: ["read", "agent_update", "agent_pause"],
   });
   const first = fixture({ getType: () => original });
-  await first.manager.spawn("/root", { path: "worker", type: "worker", task: "work", wait: false });
+  await first.manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "work",
+    wait: false,
+  });
   await tick();
   const snapshot = first.manager.saved();
   await first.manager.shutdown();
@@ -508,7 +648,10 @@ test("retained thread resumes its saved definition even after the type is remove
   assert.deepEqual(second.manager.saved()[0].definition, original);
   assert.equal(driver.options.sessionFile, snapshot[0].view.sessionFile);
   driver.finish();
-  assert.equal((await second.manager.wait("/root", "worker")).state, "completed");
+  assert.equal(
+    (await second.manager.wait("/root", "worker")).state,
+    "completed",
+  );
   await second.manager.shutdown();
 });
 
@@ -518,7 +661,11 @@ test("startup failure returns a failed thread and does not reject spawn", async 
       throw new Error("bad model");
     },
   });
-  const result = await manager.spawn("/root", { path: "worker", type: "worker", task: "task" });
+  const result = await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "task",
+  });
   assert.equal(result.state, "failed");
   assert.equal(result.error, "bad model");
   await manager.shutdown();
@@ -541,11 +688,21 @@ test("partial usage is live-only; final usage persists and elapsed freezes acros
               partial: true,
             });
             await new Promise<void>((resolve) => (emitPartialDone = resolve));
-            options.onEvent({ kind: "usage", inputTokens: 15, outputTokens: 4, costUsd: 0.02 });
+            options.onEvent({
+              kind: "usage",
+              inputTokens: 15,
+              outputTokens: 4,
+              costUsd: 0.02,
+            });
             await new Promise<void>((resolve) => (releaseFinal = resolve));
             return;
           }
-          options.onEvent({ kind: "usage", inputTokens: 21, outputTokens: 7, costUsd: 0.03 });
+          options.onEvent({
+            kind: "usage",
+            inputTokens: 21,
+            outputTokens: 7,
+            costUsd: 0.03,
+          });
         },
         abort: async () => {
           emitPartialDone();
@@ -554,13 +711,22 @@ test("partial usage is live-only; final usage persists and elapsed freezes acros
       }).driver,
   });
 
-  await manager.spawn("/root", { path: "worker", type: "worker", task: "work", wait: false });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "work",
+    wait: false,
+  });
   await tick();
   const live = manager.get("worker");
   assert.equal(live.inputTokens, 11);
   assert.equal(live.costUsd, 0.01);
   assert.equal(typeof live.startedAt, "number");
-  assert.ok(events.some((event) => event.kind === "metrics" && event.thread.inputTokens === 11));
+  assert.ok(
+    events.some(
+      (event) => event.kind === "metrics" && event.thread.inputTokens === 11,
+    ),
+  );
   const persisted = manager.saved()[0].view;
   assert.equal(persisted.inputTokens, 0);
   assert.equal(persisted.costUsd, undefined);
@@ -592,7 +758,10 @@ test("partial usage is live-only; final usage persists and elapsed freezes acros
   const restored = fixture();
   restored.manager.restore(snapshot);
   await delay(20);
-  assert.equal(restored.manager.get("worker").elapsedMs, snapshot[0].view.elapsedMs);
+  assert.equal(
+    restored.manager.get("worker").elapsedMs,
+    snapshot[0].view.elapsedMs,
+  );
   assert.equal(restored.manager.get("worker").inputTokens, 21);
   assert.equal(restored.manager.get("worker").costUsd, 0.03);
   assert.equal(restored.manager.get("worker").startedAt, undefined);
@@ -614,11 +783,18 @@ test("restore defaults missing metrics to zero and resumed usage adds to saved t
         gated({
           prompt: async () => {
             emit = () =>
-              options.onEvent({ kind: "usage", inputTokens: 4, outputTokens: 2, costUsd: 0.01 });
+              options.onEvent({
+                kind: "usage",
+                inputTokens: 4,
+                outputTokens: 2,
+                costUsd: 0.01,
+              });
           },
         }).driver,
     });
-    manager.restore([saved("/root/worker", { sessionFile: "/tmp/legacy.jsonl", ...view })]);
+    manager.restore([
+      saved("/root/worker", { sessionFile: "/tmp/legacy.jsonl", ...view }),
+    ]);
     assert.equal(manager.get("worker").inputTokens, view.inputTokens ?? 0);
     assert.equal(manager.get("worker").elapsedMs, view.elapsedMs ?? 0);
     await manager.steer("/root", "worker", "resume");
@@ -627,7 +803,11 @@ test("restore defaults missing metrics to zero and resumed usage adds to saved t
     const thread = manager.get("worker");
     assert.equal(thread.inputTokens, expected.inputTokens);
     assert.equal(thread.outputTokens, expected.outputTokens);
-    assert.ok(Math.abs(thread.costUsd! - (("costUsd" in view ? view.costUsd : 0) + 0.01)) < 1e-10);
+    assert.ok(
+      Math.abs(
+        thread.costUsd! - (("costUsd" in view ? view.costUsd : 0) + 0.01),
+      ) < 1e-10,
+    );
     assert.equal(manager.saved()[0].view.costUsd, thread.costUsd);
     assert.equal(manager.saved()[0].view.inputTokens, expected.inputTokens);
     assert.equal(thread.elapsedMs, expected.elapsedMs);
@@ -671,12 +851,21 @@ test("scoped observation attaches while starting, persists no deltas, and dispos
       return new Promise((resolve) => (open = resolve));
     },
   });
-  await manager.spawn("/root", { path: "child", type: "worker", task: "work", wait: false });
+  await manager.spawn("/root", {
+    path: "child",
+    type: "worker",
+    task: "work",
+    wait: false,
+  });
   const updates: TranscriptSnapshot[] = [];
-  const first = await manager.scope("/root").observeTranscript!("child", (snapshot) =>
-    updates.push(snapshot),
+  const first = await manager.scope("/root").observeTranscript!(
+    "child",
+    (snapshot) => updates.push(snapshot),
   );
-  const second = await manager.scope("/root").observeTranscript!("child", () => {});
+  const second = await manager.scope("/root").observeTranscript!(
+    "child",
+    () => {},
+  );
   assert.equal(first.snapshot.thread?.state, "starting");
   assert.equal(first.snapshot.generation, 0);
   assert.equal(first.snapshot.assistant, null);
@@ -688,7 +877,12 @@ test("scoped observation attaches while starting, persists no deltas, and dispos
   assert.equal(updates.at(-1)?.generation, 1);
   const persistedEvents = events.length;
   const beforeRevision = updates.at(-1)!.revision;
-  channel.accept({ type: "tool_execution_start", toolCallId: "tool", toolName: "read", args: {} });
+  channel.accept({
+    type: "tool_execution_start",
+    toolCallId: "tool",
+    toolName: "read",
+    args: {},
+  });
   channel.accept({
     type: "tool_execution_update",
     toolCallId: "tool",
@@ -718,8 +912,9 @@ test("scoped observation attaches while starting, persists no deltas, and dispos
   second.unsubscribe();
   assert.equal(detached, 1, "unsubscribe is idempotent");
   assert.equal(aborts, 0, "closing observers never aborts the worker");
-  const reopened = await manager.scope("/root").observeTranscript!("child", (snapshot) =>
-    updates.push(snapshot),
+  const reopened = await manager.scope("/root").observeTranscript!(
+    "child",
+    (snapshot) => updates.push(snapshot),
   );
   assert.equal(
     reopened.snapshot.tools[0]?.state,
@@ -743,10 +938,17 @@ test("restored transcript observation is read-only and enforces scope", async ()
     saved("/root/a", { state: "completed", sessionFile: "/tmp/a.jsonl" }),
     saved("/root/b", { state: "paused", sessionFile: "/tmp/b.jsonl" }),
   ]);
-  const observation = await manager.scope("/root").observeTranscript!("a", () => {});
+  const observation = await manager.scope("/root").observeTranscript!(
+    "a",
+    () => {},
+  );
   assert.equal(observation.snapshot.thread?.state, "completed");
   assert.equal(observation.snapshot.generation, 1);
-  assert.deepEqual(drivers.get("/root/a")?.runs, [], "read-only loading never prompts");
+  assert.deepEqual(
+    drivers.get("/root/a")?.runs,
+    [],
+    "read-only loading never prompts",
+  );
   assert.deepEqual(drivers.get("/root/a")?.steering, []);
   await assert.rejects(
     manager.scope("/root/a").observeTranscript!("/root/b", () => {}),
@@ -766,12 +968,22 @@ test("restored transcript observation is read-only and enforces scope", async ()
 
 test("reap frees retained slots, disposes drivers, and removes durable records", async () => {
   const { manager, drivers } = fixture({ maxThreads: 1 });
-  await manager.spawn("/root", { path: "old", type: "worker", task: "old", wait: false });
+  await manager.spawn("/root", {
+    path: "old",
+    type: "worker",
+    task: "old",
+    wait: false,
+  });
   await tick();
   drivers.get("/root/old")!.finish();
   await manager.wait("/root", "old");
   await assert.rejects(
-    manager.spawn("/root", { path: "new", type: "worker", task: "new", wait: false }),
+    manager.spawn("/root", {
+      path: "new",
+      type: "worker",
+      task: "new",
+      wait: false,
+    }),
     /Total thread limit/,
   );
   assert.deepEqual(manager.reap(), ["/root/old"]);
@@ -779,7 +991,12 @@ test("reap frees retained slots, disposes drivers, and removes durable records",
   assert.deepEqual(manager.saved(), []);
   assert.throws(() => manager.get("/root/old"), /Unknown thread/);
   assert.deepEqual(manager.reap(), []);
-  await manager.spawn("/root", { path: "new", type: "worker", task: "new", wait: false });
+  await manager.spawn("/root", {
+    path: "new",
+    type: "worker",
+    task: "new",
+    wait: false,
+  });
   assert.deepEqual(manager.reap(), [], "running agents survive");
   await manager.shutdown();
 });
@@ -813,7 +1030,12 @@ test("reap preserves non-completed threads and their completed ancestors", async
 
 test("reap keeps completed children available to an active parent", async () => {
   const { manager, drivers } = fixture();
-  await manager.spawn("/root", { path: "parent", type: "worker", task: "parent", wait: false });
+  await manager.spawn("/root", {
+    path: "parent",
+    type: "worker",
+    task: "parent",
+    wait: false,
+  });
   await tick();
   await manager.spawn("/root/parent", {
     path: "child",
@@ -833,8 +1055,18 @@ test("reap keeps completed children available to an active parent", async () => 
 
 test("reap preview is read-only and excludes agents completed after confirmation started", async () => {
   const { manager, drivers } = fixture();
-  await manager.spawn("/root", { path: "old", type: "worker", task: "old", wait: false });
-  await manager.spawn("/root", { path: "new", type: "worker", task: "new", wait: false });
+  await manager.spawn("/root", {
+    path: "old",
+    type: "worker",
+    task: "old",
+    wait: false,
+  });
+  await manager.spawn("/root", {
+    path: "new",
+    type: "worker",
+    task: "new",
+    wait: false,
+  });
   await tick();
   drivers.get("/root/old")!.finish();
   await manager.wait("/root", "old");
@@ -851,7 +1083,12 @@ test("reap preview is read-only and excludes agents completed after confirmation
 
 test("confirmed reap revalidates resumed descendants and preserves their ancestors", async () => {
   const { manager, drivers } = fixture();
-  await manager.spawn("/root", { path: "parent", type: "worker", task: "parent", wait: false });
+  await manager.spawn("/root", {
+    path: "parent",
+    type: "worker",
+    task: "parent",
+    wait: false,
+  });
   await tick();
   await manager.spawn("/root/parent", {
     path: "child",
@@ -884,7 +1121,12 @@ test("shutdown awaits asynchronous driver disposal", async () => {
     },
   });
   const { manager } = fixture({ createDriver: async () => driver });
-  await manager.spawn("/root", { path: "cleanup", type: "worker", task: "work", wait: false });
+  await manager.spawn("/root", {
+    path: "cleanup",
+    type: "worker",
+    task: "work",
+    wait: false,
+  });
   await tick();
   let finished = false;
   const shutdown = manager.shutdown().then(() => {
@@ -901,15 +1143,24 @@ test("shutdown awaits asynchronous driver disposal", async () => {
 test("child diagnostics are attributed to lexical parents and exposed in agent_status", async () => {
   const { manager, drivers, events } = fixture();
   try {
-    await manager.spawn("/root", { path: "worker", type: "worker", task: "work", wait: false });
+    await manager.spawn("/root", {
+      path: "worker",
+      type: "worker",
+      task: "work",
+      wait: false,
+    });
     await tick();
     const diagnostic = {
       level: "error" as const,
       message: "Classifier unavailable",
       source: "decisions",
     };
-    drivers.get("/root/worker")!.options.onEvent({ kind: "diagnostic", diagnostic });
-    assert.deepEqual(manager.scope("/root").get("worker").diagnostics, [diagnostic]);
+    drivers
+      .get("/root/worker")!
+      .options.onEvent({ kind: "diagnostic", diagnostic });
+    assert.deepEqual(manager.scope("/root").get("worker").diagnostics, [
+      diagnostic,
+    ]);
     const report = events.find((e) => e.kind === "diagnostic");
     assert.ok(report && report.kind === "diagnostic");
     assert.equal(report.recipient, "/root");
@@ -924,7 +1175,9 @@ test("child diagnostics are attributed to lexical parents and exposed in agent_s
       wait: false,
     });
     await tick();
-    drivers.get("/root/worker/nested")!.options.onEvent({ kind: "diagnostic", diagnostic });
+    drivers
+      .get("/root/worker/nested")!
+      .options.onEvent({ kind: "diagnostic", diagnostic });
     const nested = events.filter((e) => e.kind === "diagnostic").at(-1)!;
     assert.ok(nested.kind === "diagnostic");
     assert.equal(nested.recipient, "/root/worker");
@@ -943,14 +1196,20 @@ test("a spawn description is stored, persisted and survives restore", async () =
     wait: false,
   });
   await tick();
-  assert.equal(first.manager.get("worker", "/root").description, "Probe flaky test");
+  assert.equal(
+    first.manager.get("worker", "/root").description,
+    "Probe flaky test",
+  );
   const saved = first.manager.saved();
   assert.equal(saved[0]!.view.description, "Probe flaky test");
   await first.manager.shutdown();
 
   const second = fixture();
   second.manager.restore(saved);
-  assert.equal(second.manager.get("worker", "/root").description, "Probe flaky test");
+  assert.equal(
+    second.manager.get("worker", "/root").description,
+    "Probe flaky test",
+  );
   await second.manager.shutdown();
 });
 
@@ -958,5 +1217,29 @@ test("registries saved before descriptions restore without one", async () => {
   const { manager } = fixture();
   manager.restore([saved("/root/worker")]);
   assert.equal(manager.get("worker", "/root").description, undefined);
+  await manager.shutdown();
+});
+
+test("onStart fires synchronously with the canonical view before a blocking wait resolves", async () => {
+  const { manager, drivers } = fixture();
+  const seen: string[] = [];
+  const pending = manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "do work",
+    onStart: (view) => seen.push(view.path),
+  });
+  assert.deepEqual(
+    seen,
+    ["/root/worker"],
+    "onStart runs before the blocking wait resolves",
+  );
+  await tick();
+  const data = drivers.get("/root/worker");
+  assert.ok(data, "driver exists once startup registers it");
+  data.finish();
+  const view = await pending;
+  assert.equal(view.state, "completed");
+  assert.equal(view.path, "/root/worker");
   await manager.shutdown();
 });

@@ -46,15 +46,27 @@ export type OfflineHarness = {
   requests: LoggedRequest[];
   open(manager: SessionManager): Promise<AgentSession>;
   close(session: AgentSession): Promise<void>;
-  tool<T>(session: AgentSession, name: string, args: Record<string, unknown>): Promise<T>;
+  tool<T>(
+    session: AgentSession,
+    name: string,
+    args: Record<string, unknown>,
+    onUpdate?: (partial: unknown) => void,
+    signal?: AbortSignal,
+  ): Promise<T>;
 };
 
 export const registry = (manager: SessionManager, fromId?: string) => {
   const entry = [...manager.getBranch(fromId)]
     .reverse()
-    .find((item) => item.type === "custom" && item.customType === REGISTRY_ENTRY);
+    .find(
+      (item) => item.type === "custom" && item.customType === REGISTRY_ENTRY,
+    );
   assert.ok(entry?.type === "custom", "durable registry entry exists");
-  return entry.data as { version: number; rootSessionId: string; threads: SavedThread[] };
+  return entry.data as {
+    version: number;
+    rootSessionId: string;
+    threads: SavedThread[];
+  };
 };
 
 export async function withOfflineHarness(
@@ -65,7 +77,9 @@ export async function withOfflineHarness(
      * harness writes, so a spec never carries a model.
      */
     specs?: AgentSpec[];
-    onRequest(request: LoggedRequest): AssistantMessage | Promise<AssistantMessage>;
+    onRequest(
+      request: LoggedRequest,
+    ): AssistantMessage | Promise<AssistantMessage>;
     scopedModels?: string[];
     managerSettings?: Partial<ManagerSettings>;
     builtinTools?: boolean;
@@ -73,7 +87,9 @@ export async function withOfflineHarness(
   },
   body: (harness: OfflineHarness) => Promise<void>,
 ): Promise<void> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "pi-subagent-integration-"));
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), "pi-subagent-integration-"),
+  );
   const previous = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = directory;
   const sessions = new Set<AgentSession>();
@@ -99,9 +115,21 @@ export async function withOfflineHarness(
         modes: {
           default: {
             roles: {
-              main: { provider: "integration-test", modelId: "offline", thinkingLevel: "off" },
-              oracle: { provider: "integration-test", modelId: "offline", thinkingLevel: "off" },
-              subagents: { provider: "integration-test", modelId: "offline", thinkingLevel: "off" },
+              main: {
+                provider: "integration-test",
+                modelId: "offline",
+                thinkingLevel: "off",
+              },
+              oracle: {
+                provider: "integration-test",
+                modelId: "offline",
+                thinkingLevel: "off",
+              },
+              subagents: {
+                provider: "integration-test",
+                modelId: "offline",
+                thinkingLevel: "off",
+              },
             },
           },
         },
@@ -167,15 +195,22 @@ export async function withOfflineHarness(
       streamSimple(model, context) {
         const system = JSON.stringify(getCurrentSystemPrompt(context.messages));
         const pathKey =
-          system.match(/Your thread path is (\/root(?:\/[A-Za-z0-9_-]+)*)\./)?.[1] ?? system;
+          system.match(
+            /Your thread path is (\/root(?:\/[A-Za-z0-9_-]+)*)\./,
+          )?.[1] ?? system;
         const request: LoggedRequest = {
           call: requests.length + 1,
           pathCall: (byPath.get(pathKey) ?? 0) + 1,
           provider: model.provider,
           modelId: model.id,
-          path: typeof pathKey === "string" && pathKey.startsWith("/root") ? pathKey : null,
+          path:
+            typeof pathKey === "string" && pathKey.startsWith("/root")
+              ? pathKey
+              : null,
           lexicalParent:
-            system.match(/Your lexical parent is (\/root(?:\/[A-Za-z0-9_-]+)*);/)?.[1] ?? null,
+            system.match(
+              /Your lexical parent is (\/root(?:\/[A-Za-z0-9_-]+)*);/,
+            )?.[1] ?? null,
           system,
           messagesText: JSON.stringify(context.messages),
           toolNames: getCurrentTools(context.messages).map((tool) => tool.name),
@@ -211,7 +246,13 @@ export async function withOfflineHarness(
                 cacheRead: 0,
                 cacheWrite: 0,
                 totalTokens: 0,
-                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                cost: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  total: 0,
+                },
               },
             };
             stream.push({ type: "error", reason: "error", error: message });
@@ -222,10 +263,18 @@ export async function withOfflineHarness(
     });
     await runtime.setRuntimeApiKey("integration-test", "offline-runtime-key");
     const scopedModels = (
-      options.scopedModels ?? ["integration-test/offline", "integration-test/offline-alt"]
+      options.scopedModels ?? [
+        "integration-test/offline",
+        "integration-test/offline-alt",
+      ]
     ).map((identity) => {
       const slash = identity.indexOf("/");
-      return { model: runtime.getModel(identity.slice(0, slash), identity.slice(slash + 1))! };
+      return {
+        model: runtime.getModel(
+          identity.slice(0, slash),
+          identity.slice(slash + 1),
+        )!,
+      };
     });
 
     const open = async (manager: SessionManager) => {
@@ -261,18 +310,30 @@ export async function withOfflineHarness(
       });
       sessions.add(session);
       assert.deepEqual(extensionsResult.errors, []);
-      await session.bindExtensions({ mode: "print", onError: (error) => errors.push(error) });
+      await session.bindExtensions({
+        mode: "print",
+        onError: (error) => errors.push(error),
+      });
       const enabled = options.managerSettings?.subagentMode !== "off";
-      const spawnTools = session.getActiveToolNames().filter((name) => name.endsWith("_spawn"));
+      const spawnTools = session
+        .getActiveToolNames()
+        .filter((name) => name.endsWith("_spawn"));
       assert.equal(spawnTools.length > 0, enabled);
       assert.equal(
-        session.getAllTools().some((tool) => tool.name === "agent_steer" && tool.exposure !== "hidden"),
+        session
+          .getAllTools()
+          .some(
+            (tool) => tool.name === "agent_steer" && tool.exposure !== "hidden",
+          ),
         enabled,
       );
       return session;
     };
     const close = async (session: AgentSession) => {
-      await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      await session.extensionRunner.emit({
+        type: "session_shutdown",
+        reason: "quit",
+      });
       session.dispose();
       sessions.delete(session);
     };
@@ -280,6 +341,8 @@ export async function withOfflineHarness(
       session: AgentSession,
       name: string,
       args: Record<string, unknown>,
+      onUpdate?: (partial: unknown) => void,
+      signal?: AbortSignal,
     ): Promise<T> => {
       const definition = session.getToolDefinition(name);
       assert.ok(definition, `${name} registered by extension`);
@@ -287,8 +350,8 @@ export async function withOfflineHarness(
       const result = await definition.execute(
         id,
         args,
-        undefined,
-        undefined,
+        signal,
+        onUpdate,
         session.extensionRunner.createToolContext(id, undefined),
       );
       return result.details as T;
@@ -297,7 +360,10 @@ export async function withOfflineHarness(
     await body({ directory, cwd, errors, requests, open, close, tool });
   } finally {
     for (const session of sessions) {
-      await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      await session.extensionRunner.emit({
+        type: "session_shutdown",
+        reason: "quit",
+      });
       session.dispose();
     }
     resetAgentSpecs();

@@ -15,8 +15,16 @@ import type {
   TranscriptSnapshot,
 } from "../types.ts";
 import { immutableTranscriptValue } from "./transcript.ts";
-import { canonicalPath, inheritContext, isDescendant, parentPath } from "./paths.ts";
-import { DEFAULT_MANAGER_SETTINGS, type ManagerSettings } from "../prefs/settings.ts";
+import {
+  canonicalPath,
+  inheritContext,
+  isDescendant,
+  parentPath,
+} from "./paths.ts";
+import {
+  DEFAULT_MANAGER_SETTINGS,
+  type ManagerSettings,
+} from "../prefs/settings.ts";
 
 interface Record {
   view: ThreadView;
@@ -63,17 +71,26 @@ function normalizeSavedSpec(
   stored: Partial<AgentSpec> | undefined,
   fallback: (name: string) => AgentSpec | undefined,
 ): AgentSpec {
-  const name = typeof stored?.name === "string" && stored.name ? stored.name : "unknown";
+  const name =
+    typeof stored?.name === "string" && stored.name ? stored.name : "unknown";
   const live = fallback(name);
   return {
     name,
     description: stored?.description ?? live?.description ?? name,
     systemPrompt: stored?.systemPrompt ?? live?.systemPrompt ?? "",
-    tools: Array.isArray(stored?.tools) ? [...stored.tools] : (live?.tools ?? []),
-    skills: Array.isArray(stored?.skills) ? [...stored.skills] : (live?.skills ?? []),
+    tools: Array.isArray(stored?.tools)
+      ? [...stored.tools]
+      : (live?.tools ?? []),
+    skills: Array.isArray(stored?.skills)
+      ? [...stored.skills]
+      : (live?.skills ?? []),
     role: stored?.role ?? live?.role ?? "subagents",
-    ...((stored?.color ?? live?.color) ? { color: stored?.color ?? live?.color } : {}),
-    ...((stored?.icon ?? live?.icon) ? { icon: stored?.icon ?? live?.icon } : {}),
+    ...((stored?.color ?? live?.color)
+      ? { color: stored?.color ?? live?.color }
+      : {}),
+    ...((stored?.icon ?? live?.icon)
+      ? { icon: stored?.icon ?? live?.icon }
+      : {}),
   };
 }
 
@@ -91,7 +108,8 @@ function assertSpawnTimeout(timeoutMs: number): void {
       `timeoutMs must be an integer between ${MIN_SPAWN_TIMEOUT_MS} (30s) and ${MAX_SPAWN_TIMEOUT_MS} (5min)`,
     );
 }
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const errorText = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
 function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
@@ -99,7 +117,8 @@ function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
     return Promise.reject(signal.reason);
   }
   return new Promise((resolve, reject) => {
-    const cancel = () => reject(signal.reason ?? new Error("Startup cancelled"));
+    const cancel = () =>
+      reject(signal.reason ?? new Error("Startup cancelled"));
     signal.addEventListener("abort", cancel, { once: true });
     work.then(
       (value) => {
@@ -138,12 +157,16 @@ export class ThreadManager {
       records
         .filter((record) => !only || only.includes(record.view.path))
         .filter(
-          (record) => record.view.state === "completed" && (!record.initializing || record.driver),
+          (record) =>
+            record.view.state === "completed" &&
+            (!record.initializing || record.driver),
         )
         .filter(
           (record) =>
             !records.some(
-              (other) => active(other.view) && isDescendant(record.view.path, other.view.path),
+              (other) =>
+                active(other.view) &&
+                isDescendant(record.view.path, other.view.path),
             ),
         )
         .map((record) => record.view.path),
@@ -185,15 +208,20 @@ export class ThreadManager {
       list: () =>
         this.list().filter(
           (thread) =>
-            caller === "/root" || thread.path === caller || isDescendant(thread.path, caller),
+            caller === "/root" ||
+            thread.path === caller ||
+            isDescendant(thread.path, caller),
         ),
       get: (path) => this.get(path, caller),
       output: (path) => this.output(path, caller),
       transcript: (path) => this.transcript(caller, path),
-      observeTranscript: (path, listener) => this.observeTranscript(caller, path, listener),
+      observeTranscript: (path, listener) =>
+        this.observeTranscript(caller, path, listener),
       spawn: (args, signal) => this.spawn(caller, args, signal),
-      steer: (path, message, timeoutMs) => this.steer(caller, path, message, timeoutMs),
-      wait: (path, timeoutMs, signal) => this.wait(caller, path, timeoutMs, signal),
+      steer: (path, message, timeoutMs) =>
+        this.steer(caller, path, message, timeoutMs),
+      wait: (path, timeoutMs, signal) =>
+        this.wait(caller, path, timeoutMs, signal),
       update: (message) => this.update(caller, message),
       pause: (reason) => this.pause(caller, reason),
       stop: (path) => this.stop(caller, path),
@@ -241,7 +269,9 @@ export class ThreadManager {
         output: current.output,
         error: current.error,
         createdAt: current.createdAt,
-        ...(current.lastStartedAt !== undefined ? { lastStartedAt: current.lastStartedAt } : {}),
+        ...(current.lastStartedAt !== undefined
+          ? { lastStartedAt: current.lastStartedAt }
+          : {}),
         sessionFile: current.sessionFile,
         // Settled totals only. startedAt and partial usage must not churn persistence.
         elapsedMs: record.view.elapsedMs ?? 0,
@@ -252,7 +282,8 @@ export class ThreadManager {
       };
       const sessionLeafId = this.sessionLeafId(record);
       if (sessionLeafId !== undefined) view.sessionLeafId = sessionLeafId;
-      if (active(view)) view.status = view.state === "running" ? "Working" : "Starting";
+      if (active(view))
+        view.status = view.state === "running" ? "Working" : "Starting";
       return {
         view,
         definition: structuredClone(record.definition),
@@ -263,7 +294,8 @@ export class ThreadManager {
     });
   }
   restore(saved: SavedThread[]): void {
-    if (this.records.size) throw new Error("Restore requires an empty thread registry");
+    if (this.records.size)
+      throw new Error("Restore requires an empty thread registry");
     const restored = new Map<string, Record>();
     for (const item of saved) {
       const savedView = structuredClone(item.view);
@@ -271,9 +303,14 @@ export class ThreadManager {
       if (
         path === "/root" ||
         restored.has(path) ||
-        !["starting", "running", "paused", "completed", "failed", "stopped"].includes(
-          savedView.state,
-        )
+        ![
+          "starting",
+          "running",
+          "paused",
+          "completed",
+          "failed",
+          "stopped",
+        ].includes(savedView.state)
       )
         throw new Error("Invalid saved thread registry");
       const { sessionLeafId, ...storedView } = savedView;
@@ -289,7 +326,8 @@ export class ThreadManager {
         outputTokens: storedView.outputTokens ?? 0,
       };
       delete view.startedAt;
-      if (view.parent !== parentPath(path)) throw new Error(`Invalid saved parent for ${path}`);
+      if (view.parent !== parentPath(path))
+        throw new Error(`Invalid saved parent for ${path}`);
       if (active(view)) {
         view.state = "paused";
         view.status = "Interrupted by reload; send input to resume";
@@ -306,7 +344,10 @@ export class ThreadManager {
         }),
         inherited: structuredClone(item.inherited ?? []),
         // A reservation saved before its lexical parent opened has no snapshot yet.
-        contextPending: !view.sessionFile && item.inherited === undefined && view.parent !== null,
+        contextPending:
+          !view.sessionFile &&
+          item.inherited === undefined &&
+          view.parent !== null,
         startup: new AbortController(),
         ...(Object.prototype.hasOwnProperty.call(savedView, "sessionLeafId")
           ? { sessionLeafId }
@@ -316,7 +357,11 @@ export class ThreadManager {
       });
     }
     for (const record of restored.values()) {
-      if (record.view.parent && record.view.parent !== "/root" && !restored.has(record.view.parent))
+      if (
+        record.view.parent &&
+        record.view.parent !== "/root" &&
+        !restored.has(record.view.parent)
+      )
         throw new Error(`Missing saved parent ${record.view.parent}`);
     }
     this.records = restored;
@@ -332,6 +377,8 @@ export class ThreadManager {
       description?: string;
       wait?: boolean;
       timeoutMs?: number;
+      /** Called synchronously with the canonical view before a blocking wait starts. */
+      onStart?: (view: ThreadView) => void;
     },
     signal?: AbortSignal,
   ): Promise<ThreadView> {
@@ -347,7 +394,9 @@ export class ThreadManager {
     const path = canonicalPath(args.path, caller);
     this.assertAccess(caller, path);
     if (path === "/root" || this.records.has(path))
-      throw new Error(`Thread ${path} already exists; resume it with agent_steer`);
+      throw new Error(
+        `Thread ${path} already exists; resume it with agent_steer`,
+      );
     const parent = parentPath(path);
     if (parent && parent !== "/root") this.record(parent);
     if (caller !== "/root" && parent !== caller)
@@ -356,21 +405,27 @@ export class ThreadManager {
     const segments = path.slice(1).split("/");
     // Independent roots still represent agents launched by the main L1 conversation.
     const level = segments.length + (segments[0] === "root" ? 0 : 1);
-    const maxLevels = this.options.maxLevels ?? DEFAULT_MANAGER_SETTINGS.maxLevels;
+    const maxLevels =
+      this.options.maxLevels ?? DEFAULT_MANAGER_SETTINGS.maxLevels;
     if (
-      this.options.maxLevels === undefined && this.options.maxDepth !== undefined
+      this.options.maxLevels === undefined &&
+      this.options.maxDepth !== undefined
         ? segments.length - 1 > this.options.maxDepth
         : level > maxLevels
     )
       throw new Error("Agent depth limit reached");
-    if (this.records.size >= (this.options.maxThreads ?? DEFAULT_MANAGER_SETTINGS.maxThreads))
+    if (
+      this.records.size >=
+      (this.options.maxThreads ?? DEFAULT_MANAGER_SETTINGS.maxThreads)
+    )
       throw new Error("Total thread limit reached");
     this.assertCapacity();
     const type = structuredClone(this.options.getType(args.type));
     // Stamp the role pin at spawn so an async spawn reports its real model
     // immediately; later usage events stay authoritative.
     const routing = this.options.roleModel?.(type.role);
-    const parentRecord = parent && parent !== "/root" ? this.record(parent) : undefined;
+    const parentRecord =
+      parent && parent !== "/root" ? this.record(parent) : undefined;
     this.assertStartableAncestors(path);
     // Reservation is synchronous: subtree cancellation sees children even during lazy parent reopen.
     const inherited =
@@ -390,8 +445,12 @@ export class ThreadManager {
         icon: type.icon,
         state: "starting",
         task: args.task,
-        ...(args.description !== undefined ? { description: args.description } : {}),
-        ...(routing ? { model: routing.model, thinkingLevel: routing.thinkingLevel } : {}),
+        ...(args.description !== undefined
+          ? { description: args.description }
+          : {}),
+        ...(routing
+          ? { model: routing.model, thinkingLevel: routing.thinkingLevel }
+          : {}),
         status: "Starting",
         createdAt: now,
         costId: randomUUID(),
@@ -412,7 +471,12 @@ export class ThreadManager {
     record.async = args.wait === false;
     this.start(record, args.task);
     if (args.timeoutMs !== undefined) this.armTimeout(record, args.timeoutMs);
-    return args.wait === false ? this.view(record) : this.wait(caller, path, undefined, signal);
+    // Fired before a blocking wait so callers can subscribe to the transcript
+    // while their spawn call is still in flight.
+    args.onStart?.(this.view(record));
+    return args.wait === false
+      ? this.view(record)
+      : this.wait(caller, path, undefined, signal);
   }
 
   /**
@@ -432,11 +496,16 @@ export class ThreadManager {
     if (message === undefined && timeoutMs === undefined)
       throw new Error("Provide message, timeoutMs, or both");
     if (timeoutMs !== undefined) assertSpawnTimeout(timeoutMs);
-    if (message === undefined) return this.extendTimeout(caller, path, timeoutMs!);
+    if (message === undefined)
+      return this.extendTimeout(caller, path, timeoutMs!);
     if (!message.trim()) throw new Error("Steering message must not be empty");
     const record = this.record(path);
     const rearm = (): ThreadView => {
-      if (timeoutMs !== undefined && active(record.view) && !record.stopRequested)
+      if (
+        timeoutMs !== undefined &&
+        active(record.view) &&
+        !record.stopRequested
+      )
         this.armTimeout(record, timeoutMs);
       return this.view(record);
     };
@@ -451,7 +520,9 @@ export class ThreadManager {
         continue;
       }
       if (record.stopRequested && active(record.view))
-        throw new Error("Thread is stopping; wait for stopped state before resuming");
+        throw new Error(
+          "Thread is stopping; wait for stopped state before resuming",
+        );
       if (record.view.state === "running") {
         await record.driver!.steer(message);
         this.touch(record);
@@ -479,7 +550,8 @@ export class ThreadManager {
       (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 3_600_000)
     )
       throw new Error("timeoutMs must be between 0 and 3600000");
-    if (signal?.aborted) throw new Error("Waiting cancelled; thread remains running");
+    if (signal?.aborted)
+      throw new Error("Waiting cancelled; thread remains running");
     await new Promise<void>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (error?: Error) => {
@@ -487,9 +559,11 @@ export class ThreadManager {
         signal?.removeEventListener("abort", cancel);
         error ? reject(error) : resolve();
       };
-      const cancel = () => finish(new Error("Waiting cancelled; thread remains running"));
+      const cancel = () =>
+        finish(new Error("Waiting cancelled; thread remains running"));
       signal?.addEventListener("abort", cancel, { once: true });
-      if (timeoutMs !== undefined) timer = setTimeout(() => finish(), timeoutMs);
+      if (timeoutMs !== undefined)
+        timer = setTimeout(() => finish(), timeoutMs);
       record.run!.then(
         () => finish(),
         (error) => finish(new Error(errorText(error))),
@@ -499,7 +573,8 @@ export class ThreadManager {
   }
   update(caller: string, message: string): ThreadView {
     const record = this.record(caller);
-    if (!active(record.view)) throw new Error("Only a working child may report progress");
+    if (!active(record.view))
+      throw new Error("Only a working child may report progress");
     if (!message.trim() || message.length > 8000)
       throw new Error("Progress message must contain 1–8000 characters");
     record.view.status = message;
@@ -516,7 +591,8 @@ export class ThreadManager {
   }
   pause(caller: string, reason: string): ThreadView {
     const record = this.record(caller);
-    if (!active(record.view)) throw new Error("Only a working child may pause itself");
+    if (!active(record.view))
+      throw new Error("Only a working child may pause itself");
     record.pauseRequested = true;
     record.view.status = reason.trim() || "Awaiting further input";
     delete record.view.summary;
@@ -529,7 +605,9 @@ export class ThreadManager {
     this.assertAccess(caller, path);
     const record = this.record(path);
     const targets = [...this.records.values()].filter(
-      (item) => item === record || (isDescendant(item.view.path, path) && active(item.view)),
+      (item) =>
+        item === record ||
+        (isDescendant(item.view.path, path) && active(item.view)),
     );
     for (const item of targets) {
       item.stopRequested = true;
@@ -562,7 +640,8 @@ export class ThreadManager {
     this.assertLive();
     path = canonicalPath(path, caller);
     this.assertAccess(caller, path, true);
-    if (path === "/root") throw new Error("Main is not a child transcript observation target");
+    if (path === "/root")
+      throw new Error("Main is not a child transcript observation target");
     const record = this.record(path);
     // Idle/restored history may be lazily loaded, but attachment never prompts/resumes a turn.
     if (!active(record.view)) await this.ensureDriver(record, true);
@@ -605,7 +684,8 @@ export class ThreadManager {
   }
   /** Number of detached agents still working; recap waits for this to reach zero. */
   outstandingAsync(): number {
-    return [...this.records.values()].filter((r) => r.async && active(r.view)).length;
+    return [...this.records.values()].filter((r) => r.async && active(r.view))
+      .length;
   }
   private clearTimeout(record: Record): void {
     if (record.timeoutTimer !== undefined) clearTimeout(record.timeoutTimer);
@@ -635,7 +715,9 @@ export class ThreadManager {
         const content = message.content as unknown;
         const text = Array.isArray(content)
           ? content
-              .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+              .filter(
+                (c: any) => c?.type === "text" && typeof c.text === "string",
+              )
               .map((c: any) => c.text)
               .join("\n")
           : typeof content === "string"
@@ -724,7 +806,9 @@ export class ThreadManager {
       } catch (error) {
         record.view.state = record.stopRequested ? "stopped" : "failed";
         record.view.error = errorText(error);
-        record.view.status = record.stopRequested ? "Stopped; session retained" : record.view.error;
+        record.view.status = record.stopRequested
+          ? "Stopped; session retained"
+          : record.view.error;
       } finally {
         this.clearTimeout(record);
         this.freezeElapsed(record);
@@ -751,16 +835,23 @@ export class ThreadManager {
     if (record.driver) return Promise.resolve(record.driver);
     if (!record.initializing) {
       const signal =
-        readOnly && !active(record.view) ? new AbortController().signal : record.startup.signal;
+        readOnly && !active(record.view)
+          ? new AbortController().signal
+          : record.startup.signal;
       let diagnosticDriver: AgentDriver | undefined;
       const creation = Promise.resolve()
         .then(async () => {
           // Inspection and delivery can initialize a reserved child before start().
           const contextReady = this.prepareInheritedContext(record, readOnly);
           if (contextReady) await abortable(contextReady, signal);
-          if (!record.view.sessionFile && record.view.parent && record.view.parent !== "/root") {
+          if (
+            !record.view.sessionFile &&
+            record.view.parent &&
+            record.view.parent !== "/root"
+          ) {
             const parentRecord = this.record(record.view.parent);
-            if (!parentRecord.driver) await this.ensureDriver(parentRecord, readOnly);
+            if (!parentRecord.driver)
+              await this.ensureDriver(parentRecord, readOnly);
           }
           const parentSessionFile = this.lexicalParentSessionFile(record);
           const options: DriverOptions = {
@@ -777,7 +868,9 @@ export class ThreadManager {
                 if (
                   this.disposed ||
                   this.records.get(record.view.path) !== record ||
-                  (diagnosticDriver ? record.driver !== diagnosticDriver : signal.aborted)
+                  (diagnosticDriver
+                    ? record.driver !== diagnosticDriver
+                    : signal.aborted)
                 )
                   return;
                 record.view.diagnostics = [
@@ -821,7 +914,9 @@ export class ThreadManager {
               }
             },
             ...(parentSessionFile ? { parentSessionFile } : {}),
-            ...(record.sessionLeafId !== undefined ? { sessionLeafId: record.sessionLeafId } : {}),
+            ...(record.sessionLeafId !== undefined
+              ? { sessionLeafId: record.sessionLeafId }
+              : {}),
           };
           return this.options.createDriver(options);
         })
@@ -835,19 +930,22 @@ export class ThreadManager {
           diagnosticDriver = driver;
           record.driverGeneration = (record.driverGeneration ?? 0) + 1;
           record.observationError = undefined;
-          if (record.transcriptListeners?.size) this.attachTranscript(record, driver);
+          if (record.transcriptListeners?.size)
+            this.attachTranscript(record, driver);
           record.usageCursor = { input: 0, output: 0 };
           record.liveInputTokens = 0;
           record.liveOutputTokens = 0;
           record.liveCostUsd = undefined;
           record.view.sessionFile = driver.sessionFile;
-          if (driver.sessionLeafId !== undefined) record.sessionLeafId = driver.sessionLeafId;
+          if (driver.sessionLeafId !== undefined)
+            record.sessionLeafId = driver.sessionLeafId;
           this.touch(record);
           return driver;
         });
       let initializing!: Promise<AgentDriver>;
       initializing = abortable(creation, signal).catch((error) => {
-        if (record.initializing === initializing) record.initializing = undefined;
+        if (record.initializing === initializing)
+          record.initializing = undefined;
         throw error;
       });
       record.initializing = initializing;
@@ -857,7 +955,12 @@ export class ThreadManager {
   private attachTranscript(record: Record, driver: AgentDriver): void {
     if (record.detachTranscript || !record.transcriptListeners?.size) return;
     const observation = driver.observeTranscript?.((snapshot) => {
-      if (this.disposed || record.driver !== driver || !record.transcriptListeners?.size) return;
+      if (
+        this.disposed ||
+        record.driver !== driver ||
+        !record.transcriptListeners?.size
+      )
+        return;
       record.transcriptSource = snapshot;
       this.publishTranscript(record);
     });
@@ -872,7 +975,8 @@ export class ThreadManager {
       revision: record.observationRevision ?? 0,
       generation: record.driverGeneration ?? 0,
       messages:
-        source?.messages ?? immutableTranscriptValue(record.driver?.snapshot() ?? record.inherited),
+        source?.messages ??
+        immutableTranscriptValue(record.driver?.snapshot() ?? record.inherited),
       assistant: source?.assistant ?? null,
       tools: source?.tools ?? Object.freeze([]),
       inheritedCount: source?.inheritedCount ?? record.inherited.length,
@@ -930,13 +1034,19 @@ export class ThreadManager {
     if (record.view.summary === text) return true;
     record.view.summary = text;
     // Display-only: a metrics event refreshes UI without rewriting persisted registry/cost state.
-    if (!this.disposed) this.emit({ kind: "metrics", thread: this.view(record) });
+    if (!this.disposed)
+      this.emit({ kind: "metrics", thread: this.view(record) });
     return true;
   }
   /** [labs] Remove one run's summary (stale refresh failed/unavailable); no-op for other runs or none. */
   clearSummary(path: string, run: number): boolean {
     const record = this.records.get(path);
-    if (this.disposed || !record || record.runId !== run || record.view.summary === undefined)
+    if (
+      this.disposed ||
+      !record ||
+      record.runId !== run ||
+      record.view.summary === undefined
+    )
       return false;
     delete record.view.summary;
     this.emit({ kind: "metrics", thread: this.view(record) });
@@ -947,7 +1057,8 @@ export class ThreadManager {
     for (const record of this.records.values()) {
       if (record.view.summary === undefined) continue;
       delete record.view.summary;
-      if (!this.disposed) this.emit({ kind: "metrics", thread: this.view(record) });
+      if (!this.disposed)
+        this.emit({ kind: "metrics", thread: this.view(record) });
     }
   }
   private emit(event: ThreadEvent): void {
@@ -958,7 +1069,10 @@ export class ThreadManager {
       // here must not orphan a prompt promise or reject detached settlement.
       try {
         if (this.options.onEventError) this.options.onEventError(error, event);
-        else console.warn(`Subagent ${event.kind} notification failed: ${errorText(error)}`);
+        else
+          console.warn(
+            `Subagent ${event.kind} notification failed: ${errorText(error)}`,
+          );
       } catch {
         /* A failing diagnostic sink must not turn a notification into a crash. */
       }
@@ -967,16 +1081,24 @@ export class ThreadManager {
   private touch(record: Record): void {
     record.view.updatedAt = Date.now();
     this.publishTranscript(record);
-    if (!this.disposed) this.emit({ kind: "change", thread: this.view(record) });
+    if (!this.disposed)
+      this.emit({ kind: "change", thread: this.view(record) });
   }
   /** Fold driver-cumulative usage into persisted totals. Partials only refresh the live view. */
   private applyUsage(
     record: Record,
-    event: { inputTokens: number; outputTokens: number; costUsd?: number; partial?: boolean },
+    event: {
+      inputTokens: number;
+      outputTokens: number;
+      costUsd?: number;
+      partial?: boolean;
+    },
   ): void {
     const cursor = record.usageCursor ?? { input: 0, output: 0 };
     const costUsd =
-      event.costUsd !== undefined && Number.isFinite(event.costUsd) && event.costUsd >= 0
+      event.costUsd !== undefined &&
+      Number.isFinite(event.costUsd) &&
+      event.costUsd >= 0
         ? Math.max(0, event.costUsd - (cursor.costUsd ?? 0))
         : undefined;
     if (event.partial) {
@@ -991,14 +1113,18 @@ export class ThreadManager {
       record.liveInputTokens = input;
       record.liveOutputTokens = output;
       record.liveCostUsd = costUsd;
-      if (!this.disposed) this.emit({ kind: "metrics", thread: this.view(record) });
+      if (!this.disposed)
+        this.emit({ kind: "metrics", thread: this.view(record) });
       return;
     }
     record.view.inputTokens =
-      (record.view.inputTokens ?? 0) + Math.max(0, event.inputTokens - cursor.input);
+      (record.view.inputTokens ?? 0) +
+      Math.max(0, event.inputTokens - cursor.input);
     record.view.outputTokens =
-      (record.view.outputTokens ?? 0) + Math.max(0, event.outputTokens - cursor.output);
-    if (costUsd !== undefined) record.view.costUsd = (record.view.costUsd ?? 0) + costUsd;
+      (record.view.outputTokens ?? 0) +
+      Math.max(0, event.outputTokens - cursor.output);
+    if (costUsd !== undefined)
+      record.view.costUsd = (record.view.costUsd ?? 0) + costUsd;
     record.usageCursor = {
       input: event.inputTokens,
       output: event.outputTokens,
@@ -1012,10 +1138,14 @@ export class ThreadManager {
   private freezeElapsed(record: Record): void {
     const startedAt = record.view.startedAt;
     if (startedAt === undefined) return;
-    record.view.elapsedMs = (record.view.elapsedMs ?? 0) + Math.max(0, Date.now() - startedAt);
+    record.view.elapsedMs =
+      (record.view.elapsedMs ?? 0) + Math.max(0, Date.now() - startedAt);
     delete record.view.startedAt;
   }
-  private prepareInheritedContext(record: Record, readOnly = false): Promise<void> | undefined {
+  private prepareInheritedContext(
+    record: Record,
+    readOnly = false,
+  ): Promise<void> | undefined {
     if (!record.contextPending) return record.contextReady;
     if (record.contextReady) return record.contextReady;
     if (!record.view.parent || record.view.parent === "/root") {
@@ -1055,12 +1185,16 @@ export class ThreadManager {
   private view(record: Record): ThreadView {
     const view = structuredClone({
       ...record.view,
-      sessionFile: record.driver ? record.driver.sessionFile : record.view.sessionFile,
+      sessionFile: record.driver
+        ? record.driver.sessionFile
+        : record.view.sessionFile,
     });
-    if (record.liveInputTokens) view.inputTokens = (view.inputTokens ?? 0) + record.liveInputTokens;
+    if (record.liveInputTokens)
+      view.inputTokens = (view.inputTokens ?? 0) + record.liveInputTokens;
     if (record.liveOutputTokens)
       view.outputTokens = (view.outputTokens ?? 0) + record.liveOutputTokens;
-    if (record.liveCostUsd !== undefined) view.costUsd = (view.costUsd ?? 0) + record.liveCostUsd;
+    if (record.liveCostUsd !== undefined)
+      view.costUsd = (view.costUsd ?? 0) + record.liveCostUsd;
     return view;
   }
   private record(path: string): Record {
@@ -1083,16 +1217,21 @@ export class ThreadManager {
     ) {
       const record = this.record(ancestor);
       if (record.stopRequested || record.view.state === "stopped") {
-        throw new Error(`Cannot continue under stopped ancestor ${ancestor}; resume it first`);
+        throw new Error(
+          `Cannot continue under stopped ancestor ${ancestor}; resume it first`,
+        );
       }
     }
   }
   private assertCapacity(): void {
     if (
-      [...this.records.values()].filter((record) => active(record.view)).length >=
+      [...this.records.values()].filter((record) => active(record.view))
+        .length >=
       (this.options.maxConcurrent ?? DEFAULT_MANAGER_SETTINGS.maxConcurrent)
     )
-      throw new Error("Concurrent thread limit reached; wait for a thread to settle");
+      throw new Error(
+        "Concurrent thread limit reached; wait for a thread to settle",
+      );
   }
   private assertAccess(caller: string, path: string, self = false): void {
     caller = canonicalPath(caller);

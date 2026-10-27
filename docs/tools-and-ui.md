@@ -38,8 +38,17 @@ Then `agent_wait` or `agent_status` on `/root/controller-security-research`. The
 level come from the `modes.json` pin for that agent's role; see [settings](settings.md#model-routing-roles-in-modesjson).
 
 Spawn calls render compactly: the call line shows the agent name plus the `description`; the result
-collapses to one line (state, description, elapsed time, tokens, cost) and expands to a status
-line, the child's final output as Markdown, and the child's session file path.
+collapses to one line (state, model, elapsed time, tokens, cost) and expands to a status line, the
+child's final output as Markdown, and the child's session file path.
+
+While a foreground (`wait: true`) spawn is blocked, the result block streams live. The collapsed
+block puts the child's most recent tool call on its own muted line above the status line, which
+refreshes every second. Expanded (**Ctrl+O**) it mirrors the settled report's skeleton — a blank
+line, then a rolling window of the child's last tool calls (the running one highlighted, earlier
+ones collapsed into a `⋯ N earlier calls` counter, nested executions indented), then a preview of
+the child's latest assistant text when one exists, and the status line as the footer. A child with
+no output yet shows no placeholder. Once the child settles, the block switches once to the final
+report above. Detached (`wait: false`) spawns keep their single-shot result and never stream.
 
 ### Reviewer targets
 

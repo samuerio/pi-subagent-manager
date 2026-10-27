@@ -1,7 +1,15 @@
 import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+  Container,
+  Markdown,
+  Spacer,
+  Text,
+  truncateToWidth,
+  wrapTextWithAnsi,
+  type Component,
+} from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { ThreadView } from "../types.ts";
+import type { LiveToolCall, SpawnLiveDetails, ThreadView } from "../types.ts";
 import { modelLabel } from "./thread-tree.ts";
 import { threadMetrics } from "./ui.ts";
 
@@ -33,7 +41,11 @@ export function spawnCallText(args: SpawnCallArgs, name: string): string {
   return `${name}${path ? ` ${path}` : ""} ${callDescription(args)}`;
 }
 
-export function renderSpawnCall(args: unknown, theme: Theme, name: string): Text {
+export function renderSpawnCall(
+  args: unknown,
+  theme: Theme,
+  name: string,
+): Text {
   const path = callPath(args);
   const pathPart = path ? ` ${path}` : "";
   const description = callDescription(args);
@@ -51,6 +63,20 @@ export function renderSpawnCall(args: unknown, theme: Theme, name: string): Text
 export function spawnCollapsedText(thread: ThreadView): string {
   return `${thread.state}  ${modelLabel(thread)}  ${threadMetrics(thread)}`;
 }
+/**
+ * Collapsed live block, activity first and status last (the same order as the
+ * Agent widget rows and the settled report): the latest child call, then the
+ * status line. No call yet means the status line alone.
+ */
+export function liveCollapsedLines(thread: SpawnLiveDetails): string[] {
+  const last = [...(thread.recentCalls ?? [])]
+    .reverse()
+    .find((call) => !call.nested);
+  const lines: string[] = [];
+  if (last) lines.push(`→ ${last.name} ${last.summary}`);
+  lines.push(statusLine(thread));
+  return lines;
+}
 
 function statusLine(thread: ThreadView): string {
   const model = thread.model
@@ -58,27 +84,124 @@ function statusLine(thread: ThreadView): string {
     : "model pending";
   return `${thread.state} · ${model} · ${threadMetrics(thread)}`;
 }
+const MAX_LIVE_TRAIL_LINES = 12;
+const LIVE_PREVIEW_LINES = 4;
+
+function callColor(call: LiveToolCall, childActive: boolean): ThemeColor {
+  if (call.isError) return "error";
+  if (call.state === "running") return childActive ? "accent" : "muted";
+  return "muted";
+}
+type ThemeColor = Parameters<Theme["fg"]>[0];
+
+function callText(call: LiveToolCall, childActive: boolean): string {
+  const prefix = call.nested ? "  ↳ " : "→ ";
+  const body = `${call.name} ${call.summary}`;
+  // A child aborted mid-call leaves a running marker behind; never present it as live.
+  return call.state === "running" && !childActive
+    ? `${prefix}${body} (interrupted)`
+    : prefix + body;
+}
+
+/**
+ * Live expanded view: status line, then a rolling window of the child's tool
+ * calls (newest at the bottom, earlier ones collapsed into a counter), then a
+ * tail of the latest assistant text. The window is capped inside render(width)
+ * because renderResult never sees a width.
+ */
+export function liveExpandedLines(
+  thread: SpawnLiveDetails,
+  width: number,
+  theme: Theme,
+): string[] {
+  // Same skeleton as the settled report: breathing room, the body, then the
+  // status footer — with the trail in the activity-first order of the
+  // collapsed live block. A child with no output yet just shows its trail.
+  const lines: string[] = [""];
+  const childActive = thread.state === "starting" || thread.state === "running";
+  const calls = thread.recentCalls ?? [];
+  if (calls.length) {
+    const rendered = calls.map((call) => ({
+      color: callColor(call, childActive),
+      line: callText(call, childActive),
+    }));
+    const kept: typeof rendered = [];
+    let used = 0;
+    for (let index = rendered.length - 1; index >= 0; index--) {
+      const cost = wrapTextWithAnsi(
+        rendered[index].line,
+        Math.max(1, width),
+      ).length;
+      // The newest call stays visible even when a narrow terminal wraps it
+      // past the cap; the cap only bounds the older trail behind it.
+      if (index < rendered.length - 1 && used + cost > MAX_LIVE_TRAIL_LINES)
+        break;
+      used += cost;
+      kept.unshift(rendered[index]);
+    }
+    const dropped = rendered.length - kept.length;
+    if (dropped > 0) lines.push(theme.fg("dim", `⋯ ${dropped} earlier calls`));
+    for (const entry of kept)
+      lines.push(
+        truncateToWidth(theme.fg(entry.color, entry.line), Math.max(1, width)),
+      );
+  }
+  const preview = thread.assistantPreview?.trim();
+  if (preview) {
+    const wrapped = preview
+      .split("\n")
+      .flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)));
+    for (const line of wrapped.slice(-LIVE_PREVIEW_LINES))
+      lines.push(truncateToWidth(line, Math.max(1, width)));
+  }
+  lines.push("", theme.fg("muted", statusLine(thread)));
+  return lines;
+}
 
 export function renderSpawnResult(
   result: unknown,
   options: unknown,
   theme: Theme,
   context?: unknown,
-): Text | Container {
-  const content = (result as { content?: Array<{ type: string; text?: string }> }).content;
+): Text | Container | Component {
+  const content = (
+    result as { content?: Array<{ type: string; text?: string }> }
+  ).content;
   const text = content?.[0]?.type === "text" ? content[0].text : undefined;
-  const expanded = (options as { expanded?: boolean } | undefined)?.expanded === true;
-  const isError = (context as { isError?: boolean } | undefined)?.isError === true;
+  const expanded =
+    (options as { expanded?: boolean } | undefined)?.expanded === true;
+  const isError =
+    (context as { isError?: boolean } | undefined)?.isError === true;
   // On the throw path createErrorToolResult wipes details; render the envelope
   // text alone, dyed in error color, without an extra header row.
   const thread = (result as { details?: unknown }).details as
-    (ThreadView & { outputTruncated?: boolean }) | undefined;
+    SpawnLiveDetails | undefined;
   if (!thread?.path) {
-    if (isError) return new Text(theme.fg("error", text ?? "(no output)"), 0, 0);
+    if (isError)
+      return new Text(theme.fg("error", text ?? "(no output)"), 0, 0);
     return new Text(text ?? "(no output)", 0, 0);
   }
 
-  if (!expanded) return new Text(theme.fg("muted", spawnCollapsedText(thread)), 0, 0);
+  // In-flight updates stream a live view; the authoritative partial flag guards
+  // the settled state, whose report layout is the final render below.
+  const partial =
+    (options as { isPartial?: boolean } | undefined)?.isPartial === true;
+  if (partial && (thread.state === "starting" || thread.state === "running")) {
+    if (!expanded)
+      return new Text(
+        theme.fg("muted", liveCollapsedLines(thread).join("\n")),
+        0,
+        0,
+      );
+    return {
+      render: (width: number) =>
+        liveExpandedLines(thread, Math.max(1, width), theme),
+      invalidate: () => {},
+    };
+  }
+
+  if (!expanded)
+    return new Text(theme.fg("muted", spawnCollapsedText(thread)), 0, 0);
 
   // Expanded reads top-down like a report: what was asked (task, muted), a
   // full-width rule separating instruction from answer, then the output, and
@@ -93,7 +216,9 @@ export function renderSpawnResult(
     // The rule takes the spacer's slot: task/answer stay separated at any scroll
     // position without spending an extra line.
     container.addChild({
-      render: (width: number) => [theme.fg("muted", "\u2500".repeat(Math.max(0, width)))],
+      render: (width: number) => [
+        theme.fg("muted", "\u2500".repeat(Math.max(0, width))),
+      ],
       invalidate: () => {},
     });
   }
@@ -104,12 +229,20 @@ export function renderSpawnResult(
     container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
   }
   if (thread.outputTruncated) {
-    container.addChild(new Text(theme.fg("muted", "(output truncated at 16000 characters)"), 0, 0));
+    container.addChild(
+      new Text(
+        theme.fg("muted", "(output truncated at 16000 characters)"),
+        0,
+        0,
+      ),
+    );
   }
   container.addChild(new Spacer(1));
   container.addChild(new Text(theme.fg("muted", statusLine(thread)), 0, 0));
   if (thread.sessionFile) {
-    container.addChild(new Text(theme.fg("dim", `session: ${thread.sessionFile}`), 0, 0));
+    container.addChild(
+      new Text(theme.fg("dim", `session: ${thread.sessionFile}`), 0, 0),
+    );
   }
   return container;
 }

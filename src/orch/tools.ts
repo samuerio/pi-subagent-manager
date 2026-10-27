@@ -1,16 +1,37 @@
 import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ThreadManager } from "./manager.ts";
+import { createLiveThrottler } from "./live-throttle.ts";
 import { listAgentSpecs, spawnToolName } from "../agents/specs.ts";
-import type { AgentSpec, ThreadView } from "../types.ts";
+import type {
+  AgentSpec,
+  LiveToolCall,
+  SpawnLiveDetails,
+  ThreadView,
+  TranscriptObservation,
+  TranscriptSnapshot,
+} from "../types.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { renderSpawnCall, renderSpawnResult } from "../ui/spawn-render.ts";
+import { captureToolCall } from "../ui/tool-call-format.ts";
 
-const path = Type.String({ description: "Absolute agent path, or name relative to the caller" });
+const LIVE_HEARTBEAT_MS = 1000;
+const ASSISTANT_PREVIEW_CHARS = 2000;
+
+const path = Type.String({
+  description: "Absolute agent path, or name relative to the caller",
+});
 const text = Type.String({ minLength: 1 });
-function compact(thread: ThreadView): ThreadView & { outputTruncated?: boolean } {
+function compact(
+  thread: ThreadView,
+): ThreadView & { outputTruncated?: boolean } {
   if (thread.output && thread.output.length > 16000)
-    return { ...thread, output: thread.output.slice(0, 16000), outputTruncated: true };
+    return {
+      ...thread,
+      output: thread.output.slice(0, 16000),
+      outputTruncated: true,
+    };
   return thread;
 }
 function result(value: unknown) {
@@ -18,6 +39,141 @@ function result(value: unknown) {
     content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
     details: value,
   };
+}
+
+const isActive = (thread: ThreadView) =>
+  thread.state === "starting" || thread.state === "running";
+
+/** Tail of the latest assistant text for the expanded live preview. */
+function assistantPreview(snapshot: TranscriptSnapshot): string | undefined {
+  const message =
+    snapshot.assistant ??
+    [...snapshot.messages].reverse().find((item) => item.role === "assistant");
+  if (!message) return undefined;
+  const content = (message as { content?: unknown }).content;
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter((block) => (block as { type?: string })?.type === "text")
+            .map((block) => String((block as { text?: string }).text ?? ""))
+            .join("\n")
+        : "";
+  // Assistant text can quote untrusted file/network content; strip terminal
+  // commands before the preview ever reaches details (same layer as ui.ts).
+  const trimmed = stripTerminalSequences(text)
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, " ")
+    .trim();
+  return trimmed ? trimmed.slice(-ASSISTANT_PREVIEW_CHARS) : undefined;
+}
+
+/** Live-only details for in-flight updates; fresh object per emit, never persisted. */
+function liveDetails(
+  snapshot: TranscriptSnapshot,
+  calls?: LiveToolCall[],
+): SpawnLiveDetails | undefined {
+  const thread = snapshot.thread;
+  if (!thread?.path) return undefined;
+  const recentCalls =
+    calls ?? snapshot.tools.map((tool) => captureToolCall(tool, process.cwd()));
+  const preview = assistantPreview(snapshot);
+  return {
+    ...compact(thread),
+    ...(recentCalls.length ? { recentCalls } : {}),
+    ...(preview ? { assistantPreview: preview } : {}),
+  };
+}
+
+/**
+ * While a foreground spawn blocks, stream the child's tool calls and metrics to
+ * the renderer via onUpdate. Subscription happens inside onStart, which the
+ * manager fires before its internal wait begins; snapshots are cumulative, so
+ * a late first delivery still carries the full state.
+ */
+async function runForeground(
+  service: ReturnType<ThreadManager["scope"]>,
+  params: {
+    path: string;
+    task: string;
+    description?: string;
+    timeoutMs?: number;
+    wait?: boolean;
+  },
+  type: string,
+  signal: AbortSignal | undefined,
+  onUpdate: (partial: {
+    content: Array<{ type: "text"; text: string }>;
+    details: unknown;
+  }) => void,
+): Promise<SpawnLiveDetails> {
+  const throttler = createLiveThrottler({
+    heartbeatMs: LIVE_HEARTBEAT_MS,
+    emit: (snapshot) => {
+      // A driver rebuilds snapshot.tools per turn; accumulate across turns so
+      // the trail stays continuous, resetting it when the driver is replaced.
+      if (generation !== undefined && snapshot.generation !== generation)
+        calls.clear();
+      generation = snapshot.generation;
+      for (const tool of snapshot.tools)
+        calls.set(tool.toolCallId, captureToolCall(tool, process.cwd()));
+      const details = liveDetails(snapshot, [...calls.values()]);
+      if (!details) return;
+      onUpdate({
+        content: [
+          { type: "text", text: JSON.stringify(compact(details), null, 2) },
+        ],
+        details,
+      });
+    },
+  });
+  const calls = new Map<string, LiveToolCall>();
+  let generation: number | undefined;
+  let observation: Promise<TranscriptObservation | undefined> | undefined;
+  try {
+    const view = await service.spawn(
+      {
+        path: params.path,
+        type,
+        task: params.task,
+        ...(params.description !== undefined
+          ? { description: params.description }
+          : {}),
+        ...(params.timeoutMs !== undefined
+          ? { timeoutMs: params.timeoutMs }
+          : {}),
+        // Foreground wait is manager behavior; the model's wait flag stays true.
+        onStart: (started) => {
+          if (!isActive(started) || !service.observeTranscript) return;
+          observation = service
+            .observeTranscript(started.path, (snapshot) =>
+              throttler.push(snapshot),
+            )
+            .catch((error) => {
+              // Live streaming is best-effort; the spawn itself must proceed.
+              console.warn(
+                `Subagent transcript subscription failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              return undefined;
+            });
+        },
+      },
+      signal,
+    );
+    // The settled view is rebuilt without the live-only fields.
+    return { ...compact(view) };
+  } finally {
+    throttler.flush();
+    throttler.stop();
+    void observation
+      ?.then((entry) => entry?.unsubscribe())
+      .catch((error) => {
+        // Unsubscribe is cleanup; a failure here only leaks a listener.
+        console.warn(
+          `Subagent transcript unsubscribe failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+  }
 }
 
 /**
@@ -31,7 +187,8 @@ const SpawnParams = Type.Object({
       "Task-based kebab-case path (e.g. /root/controller-security-research), or a task name relative to the caller",
   }),
   description: Type.String({
-    description: "A very short description of the task that can be displayed to the user.",
+    description:
+      "A very short description of the task that can be displayed to the user.",
   }),
   task: text,
   wait: Type.Optional(Type.Boolean()),
@@ -60,27 +217,68 @@ Spawns a \`${spec.name}\` child. The lexical parent, NOT the caller, supplies a 
  * model input. Spawn verbs are generated from the spec table so adding an agent
  * never touches this file.
  */
-export function agentTools(getManager: () => ThreadManager, caller: string): ToolDefinition[] {
+export function agentTools(
+  getManager: () => ThreadManager,
+  caller: string,
+): ToolDefinition[] {
   const threads = () => getManager().scope(caller);
   const make = (
     name: string,
     description: string,
     parameters: any,
-    execute: (params: any, signal?: AbortSignal) => Promise<any> | any,
+    execute: (
+      params: any,
+      signal?: AbortSignal,
+      onUpdate?: (partial: {
+        content: Array<{ type: "text"; text: string }>;
+        details: unknown;
+      }) => void,
+    ) => Promise<any> | any,
   ): ToolDefinition => ({
     name,
     label: name,
     description,
     parameters,
-    execute: async (_id, params, signal) => execute(params, signal),
+    execute: async (_id, params, signal, onUpdate) =>
+      execute(params, signal, onUpdate),
   });
   const spawnTools = listAgentSpecs().map((spec) => {
     const toolName = spawnToolName(spec.name);
     return {
-      ...make(toolName, spawnDescription(spec, toolName), SpawnParams, async (params, signal) =>
-        result(compact(await threads().spawn({ ...params, type: spec.name }, signal))),
+      ...make(
+        toolName,
+        spawnDescription(spec, toolName),
+        SpawnParams,
+        async (params, signal, onUpdate) => {
+          const service = threads();
+          // Detached spawns keep their single-shot result; foreground spawns stream live.
+          if (params.wait === false || !onUpdate)
+            return result(
+              compact(
+                await service.spawn(
+                  {
+                    path: params.path,
+                    type: spec.name,
+                    task: params.task,
+                    ...(params.description !== undefined
+                      ? { description: params.description }
+                      : {}),
+                    ...(params.wait !== undefined ? { wait: params.wait } : {}),
+                    ...(params.timeoutMs !== undefined
+                      ? { timeoutMs: params.timeoutMs }
+                      : {}),
+                  },
+                  signal,
+                ),
+              ),
+            );
+          return result(
+            await runForeground(service, params, spec.name, signal, onUpdate),
+          );
+        },
       ),
-      renderCall: (args: unknown, theme: Theme) => renderSpawnCall(args, theme, toolName),
+      renderCall: (args: unknown, theme: Theme) =>
+        renderSpawnCall(args, theme, toolName),
       renderResult: renderSpawnResult,
     };
   });
@@ -91,10 +289,14 @@ export function agentTools(getManager: () => ThreadManager, caller: string): Too
       "Wait for a descendant to complete, fail, stop or pause. Paused means no final answer handback. Cancellation/timeouts do not stop the child; poll status or wait again.",
       Type.Object({
         path,
-        timeoutMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 3600000 })),
+        timeoutMs: Type.Optional(
+          Type.Integer({ minimum: 0, maximum: 3600000 }),
+        ),
       }),
       async (params, signal) =>
-        result(compact(await threads().wait(params.path, params.timeoutMs, signal))),
+        result(
+          compact(await threads().wait(params.path, params.timeoutMs, signal)),
+        ),
     ),
     make(
       "agent_steer",
@@ -104,7 +306,8 @@ export function agentTools(getManager: () => ThreadManager, caller: string): Too
         message: Type.Optional(
           Type.String({
             minLength: 1,
-            description: "Input to send or resume with. Omit entirely for a timer-only re-arm.",
+            description:
+              "Input to send or resume with. Omit entirely for a timer-only re-arm.",
           }),
         ),
         timeoutMs: Type.Optional(
@@ -117,14 +320,26 @@ export function agentTools(getManager: () => ThreadManager, caller: string): Too
         ),
       }),
       async (params) =>
-        result(compact(await threads().steer(params.path, params.message, params.timeoutMs))),
+        result(
+          compact(
+            await threads().steer(
+              params.path,
+              params.message,
+              params.timeoutMs,
+            ),
+          ),
+        ),
     ),
     make(
       "agent_status",
       "Read a thread's status, including bounded child extension diagnostics, or list visible descendants. Root can inspect all trees. Completion retains the session; pause retains it without final answer handback.",
       Type.Object({ path: Type.Optional(path) }),
       (params) =>
-        result(params.path ? compact(threads().get(params.path)) : threads().list().map(compact)),
+        result(
+          params.path
+            ? compact(threads().get(params.path))
+            : threads().list().map(compact),
+        ),
     ),
     make(
       "agent_update",
