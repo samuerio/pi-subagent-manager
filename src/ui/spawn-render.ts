@@ -344,6 +344,32 @@ export function renderThreadResult(
     return container;
   }
 
+  // agent_output's pagination payload: {path, text, totalCharacters, nextOffset}.
+  const page = details as
+    | {
+        path?: unknown;
+        text?: unknown;
+        totalCharacters?: unknown;
+        nextOffset?: unknown;
+      }
+    | undefined;
+  if (
+    typeof page?.path === "string" &&
+    typeof page.text === "string" &&
+    typeof page.totalCharacters === "number"
+  )
+    return renderOutputPage(
+      {
+        path: page.path,
+        text: page.text,
+        totalCharacters: page.totalCharacters,
+        nextOffset:
+          typeof page.nextOffset === "number" ? page.nextOffset : null,
+      },
+      expanded,
+      theme,
+    );
+
   // The state duck-check separates real views from lookalikes: error results
   // arrive with details wiped by createErrorToolResult, and any unexpected
   // payload shape renders as its envelope text instead of garbage fields.
@@ -352,4 +378,33 @@ export function renderThreadResult(
   if (!expanded)
     return new Text(theme.fg("muted", spawnCollapsedText(thread)), 0, 0);
   return settledThreadView(thread, theme);
+}
+
+/**
+ * One page of a thread's output. The envelope carries no start offset; it is
+ * derived from totalCharacters/nextOffset, which is exact unless the model
+ * skipped a page mid-sequence (cosmetic then, not structural).
+ */
+function renderOutputPage(
+  page: {
+    path: string;
+    text: string;
+    totalCharacters: number;
+    nextOffset: number | null;
+  },
+  expanded: boolean,
+  theme: Theme,
+): Text | Container {
+  const end = page.nextOffset ?? page.totalCharacters;
+  const start = Math.max(0, end - page.text.length);
+  const footer = `${page.path} · chars ${start}-${end} of ${page.totalCharacters}${page.nextOffset !== null ? " · more" : ""}`;
+  if (!expanded) return new Text(theme.fg("muted", footer), 0, 0);
+  const container = new Container();
+  container.addChild(new Spacer(1));
+  if (page.text.trim())
+    container.addChild(new Markdown(page.text, 0, 0, getMarkdownTheme()));
+  else container.addChild(new Text(theme.fg("muted", "(empty page)"), 0, 0));
+  container.addChild(new Spacer(1));
+  container.addChild(new Text(theme.fg("muted", footer), 0, 0));
+  return container;
 }

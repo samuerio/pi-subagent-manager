@@ -123,6 +123,60 @@ test("the status list expands to one status line per thread", () => {
   assert.match(text, /\/root\/b  running/);
 });
 
+// --- agent_output pagination page ---------------------------------------------
+
+test("an output page collapses to position plus the more marker", () => {
+  const view = renderThreadResult(
+    envelope({
+      path: "/root/worker",
+      text: "x".repeat(16000),
+      totalCharacters: 45210,
+      nextOffset: 16000,
+    }),
+    { expanded: false },
+    theme,
+  );
+  const text = stripTerminalSequences(
+    (view as { render: (width: number) => string[] }).render(400).join("\n"),
+  ).trim();
+  assert.equal(text, "/root/worker · chars 0-16000 of 45210 · more");
+});
+
+test("the last page omits the more marker and derives the start offset", () => {
+  const view = renderThreadResult(
+    envelope({
+      path: "/root/worker",
+      text: "y".repeat(2000),
+      totalCharacters: 45210,
+      nextOffset: null,
+    }),
+    { expanded: false },
+    theme,
+  );
+  const text = stripTerminalSequences(
+    (view as { render: (width: number) => string[] }).render(400).join("\n"),
+  ).trim();
+  assert.equal(text, "/root/worker · chars 43210-45210 of 45210");
+});
+
+test("an output page expands into markdown with the position footer", () => {
+  const container = renderThreadResult(
+    envelope({
+      path: "/root/worker",
+      text: "## Findings\n\nThe test was flaky.",
+      totalCharacters: 32,
+      nextOffset: null,
+    }),
+    { expanded: true },
+    theme,
+  );
+  const report = rendered(container as { render: (width: number) => string[] });
+  assert.match(report, /Findings/);
+  assert.match(report, /The test was flaky/);
+  assert.match(report, /chars 0-32 of 32/);
+  assert.doesNotMatch(report, /· more/);
+});
+
 // --- fallbacks ---------------------------------------------------------------
 
 test("error results without a thread render as error text", () => {

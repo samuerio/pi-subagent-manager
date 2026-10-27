@@ -189,7 +189,7 @@ async function runForeground(
 const SpawnParams = Type.Object({
   path: Type.String({
     description:
-      "Task-based kebab-case path (e.g. /root/controller-security-research), or a task name relative to the caller",
+      "Task-based kebab-case path. An absolute single-segment path /<name> (e.g. /review-auth) from the main thread starts a fresh independent root with no inherited context; /root/<name> or a bare relative name forks the caller's conversation.",
   }),
   description: Type.String({
     description:
@@ -214,7 +214,7 @@ const SpawnParams = Type.Object({
 function spawnDescription(spec: AgentSpec, toolName: string): string {
   return `${spec.description}
 
-Spawns a \`${spec.name}\` child. The lexical parent, NOT the caller, supplies a context snapshot: /root is the main thread, and an independent root (/task) has no inherited context. Foreground waits by default; wait:false runs detached, and when it completes, fails or is stopped you receive a message event that wakes you, so do not poll. Optional timeoutMs (30000–300000): if the child is still running after that many ms you receive an event with its status, elapsed, tokens and recent output; the child is NOT stopped. For parallel work, spawn every independent sibling with wait:false before calling agent_wait. Existing paths are retained; resume them with agent_steer rather than ${toolName}.`;
+Spawns a \`${spec.name}\` child. The lexical parent, NOT the caller, supplies a context snapshot: /root/<name> or a relative name forks that conversation, while an absolute single-segment /<name> from the main thread starts a fresh independent root with no inherited context (only the main thread can spawn those; an agent may address only its descendants). Foreground waits by default; wait:false runs detached, and when it completes, fails or is stopped you receive a message event that wakes you, so do not poll. Optional timeoutMs (30000–300000): if the child is still running after that many ms you receive an event with its status, elapsed, tokens and recent output; the child is NOT stopped. For parallel work, spawn every independent sibling with wait:false before calling agent_wait. Existing paths are retained; resume them with agent_steer rather than ${toolName}.`;
 }
 
 /**
@@ -384,7 +384,7 @@ export function agentTools(
       Type.Object({ path }),
       async (params) => result(compact(await threads().stop(params.path))),
     ),
-    make(
+    threadTool(
       "agent_output",
       "Read completed thread output in character pages. Paused threads deliberately have no final answer handback. All sessions can be viewed by the user with /agents tree; select a thread and press Enter to inspect it.",
       Type.Object({
