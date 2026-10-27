@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AgentRole, ThinkingLevel } from "../types.ts";
+import { resolveModesPathSync } from "../modes/file.ts";
 
 export interface RoleRouting {
   /** `provider/model-id` for `--model`-style selection. */
@@ -17,32 +16,31 @@ export interface RoleRouting {
  * baked-in model or to the parent's model, because a silently wrong model is
  * worse than a loud failure.
  *
- * Path resolution mirrors prompt-editor: a project `.pi/modes.json` wins over
- * the global `~/.pi/agent/modes.json`.
+ * Path resolution lives in modes/file.ts: a project `.pi/modes.json` wins
+ * over the global `~/.pi/agent/modes.json`.
  */
 export function resolveRoleRouting(cwd: string, role: AgentRole): RoleRouting {
-  const globalPath = path.join(getAgentDir(), "modes.json");
-  let modesPath = globalPath;
-  try {
-    const projectPath = path.join(cwd, ".pi", "modes.json");
-    if (fs.statSync(projectPath).isFile()) modesPath = projectPath;
-  } catch {
-    /* no project override; use the global file */
-  }
+  const modesPath = resolveModesPathSync(cwd);
 
   let parsed: any;
   try {
     parsed = JSON.parse(fs.readFileSync(modesPath, "utf-8"));
   } catch (error) {
-    throw new Error(`modes.json: failed to read/parse ${modesPath}: ${(error as Error).message}`);
+    throw new Error(
+      `modes.json: failed to read/parse ${modesPath}: ${(error as Error).message}`,
+    );
   }
 
   const currentMode = parsed?.currentMode;
   if (typeof currentMode !== "string" || !currentMode)
-    throw new Error(`modes.json: "currentMode" must be a non-empty string in ${modesPath}`);
+    throw new Error(
+      `modes.json: "currentMode" must be a non-empty string in ${modesPath}`,
+    );
   const modeSpec = parsed?.modes?.[currentMode];
   if (!modeSpec || typeof modeSpec !== "object")
-    throw new Error(`modes.json: modes["${currentMode}"] is missing in ${modesPath}`);
+    throw new Error(
+      `modes.json: modes["${currentMode}"] is missing in ${modesPath}`,
+    );
   const pin = modeSpec.roles?.[role];
   if (!pin || typeof pin !== "object")
     throw new Error(

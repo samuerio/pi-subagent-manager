@@ -11,21 +11,22 @@ Tests run offline with no model credentials. Scripted-provider SDK tests cover n
 
 ## Code layout
 
-| Path                                                                         | Responsibility                                                                                                     |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `src/index.ts`                                                               | Parent-session lifecycle and extension wiring                                                                      |
-| `src/orch/manager.ts`                                                        | Ownership, lifecycle, retained registry. `scope(caller)` gives tools and UI the same caller-bound `ThreadService`. |
-| `src/orch/runtime.ts`                                                        | Isolated pi SDK sessions, providers, safe turn boundaries                                                          |
-| `src/orch/paths.ts`                                                          | Canonical ancestry and context snapshots                                                                           |
-| `src/orch/mailbox.ts`                                                        | Input persistence, replay, transcript reconciliation                                                               |
-| `src/orch/tools.ts`                                                          | Caller-bound model tools                                                                                           |
-| `src/orch/prompt.ts`                                                         | System-prompt guidance per mode                                                                                    |
-| `src/orch/housekeeping.ts`                                                   | [labs] Housekeeping summarizer: throttling, cancellation, model resolution and the one-line summary call          |
-| `src/agents/specs.ts`                                                        | The built-in agent roster: prompts, tool allowlists, skills, role, color, icon                                     |
-| `src/orch/routing.ts`                                                        | `modes.json` role pins for the `oracle` and `subagents` model roles                                                |
-| `src/prefs/settings.ts`                                                      | Manager settings, validation, safe paths                                                                           |
-| `src/prefs/models.ts`                                                        | `provider/model-id` identity                                                                                       |
-| `src/ui/`                                                                    | Dialogs, settings, thread tree, widget, live view                                                                  |
+| Path                       | Responsibility                                                                                                              |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`             | Parent-session lifecycle and extension wiring                                                                               |
+| `src/orch/manager.ts`      | Ownership, lifecycle, retained registry. `scope(caller)` gives tools and UI the same caller-bound `ThreadService`.          |
+| `src/orch/runtime.ts`      | Isolated pi SDK sessions, providers, safe turn boundaries                                                                   |
+| `src/orch/paths.ts`        | Canonical ancestry and context snapshots                                                                                    |
+| `src/orch/mailbox.ts`      | Input persistence, replay, transcript reconciliation                                                                        |
+| `src/orch/tools.ts`        | Caller-bound model tools                                                                                                    |
+| `src/orch/prompt.ts`       | System-prompt guidance per mode                                                                                             |
+| `src/orch/housekeeping.ts` | [labs] Housekeeping summarizer: throttling, cancellation, model resolution and the one-line summary call                    |
+| `src/agents/specs.ts`      | The built-in agent roster: prompts, tool allowlists, skills, role, color, icon                                              |
+| `src/modes/`               | `modes.json` management: schema, locked/atomic file layer, `/mode` runtime and dialogs, prompt history, editor border label |
+| `src/orch/routing.ts`      | `modes.json` role pins for the `oracle` and `subagents` model roles                                                         |
+| `src/prefs/settings.ts`    | Manager settings, validation, safe paths                                                                                    |
+| `src/prefs/models.ts`      | `provider/model-id` identity                                                                                                |
+| `src/ui/`                  | Dialogs, settings, thread tree, widget, live view                                                                           |
 
 ## Changelog
 

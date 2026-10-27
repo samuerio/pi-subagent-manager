@@ -4,14 +4,27 @@ import {
   diagnosticAgentText,
 } from "./orch/diagnostics.ts";
 import { randomUUID } from "node:crypto";
-import { buildSessionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+  buildSessionContext,
+  getAgentDir,
+} from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
 import { ThreadManager } from "./orch/manager.ts";
 import { loadManagerSettings } from "./prefs/settings.ts";
 import { configureAgents } from "./ui/settings-ui.ts";
 import { AgentNavigationController } from "./ui/status-ui.ts";
 import { AgentNavigationEditor } from "./ui/agent-navigation-editor.ts";
+import { ModesController } from "./modes/runtime.ts";
+import {
+  buildHistoryList,
+  collectUserPromptsFromEntries,
+  historiesMatch,
+  loadPromptHistoryForCwd,
+} from "./modes/history.ts";
 import { createDriverFactory } from "./orch/runtime.ts";
 import { resolveRoleRouting } from "./orch/routing.ts";
 import {
@@ -21,11 +34,18 @@ import {
 } from "./orch/housekeeping.ts";
 import { createInheritedToolSource } from "./orch/inherited-tools.ts";
 import { subagentPrompt } from "./orch/prompt.ts";
-import { ChecklistMetaMirror, checklistStatus } from "./orch/checklist-integration.ts";
+import {
+  ChecklistMetaMirror,
+  checklistStatus,
+} from "./orch/checklist-integration.ts";
 import { agentTools } from "./orch/tools.ts";
 import { updateWidget } from "./ui/ui.ts";
 import { canOpenDialog, dialogMenu } from "./ui/dialog.ts";
-import { getAgentSpec, isAgentSpecName, listAgentSpecs } from "./agents/specs.ts";
+import {
+  getAgentSpec,
+  isAgentSpecName,
+  listAgentSpecs,
+} from "./agents/specs.ts";
 import type { SavedThread, ThreadEvent, ThreadView } from "./types.ts";
 import { COST_ENTRY, CostLedger } from "./orch/cost-ledger.ts";
 import { CostFooterController } from "./ui/cost-footer.ts";
@@ -46,7 +66,8 @@ type RootNotification = {
 export default function piSubagent(pi: ExtensionAPI): void {
   let capabilityActive = true;
   pi.events.on(CAPABILITY_PROBE_CHANNEL, (payload) => {
-    if (capabilityActive && limits.subagentMode !== "off") respondDiagnosticCapability(payload);
+    if (capabilityActive && limits.subagentMode !== "off")
+      respondDiagnosticCapability(payload);
   });
   let context: ExtensionContext | undefined;
   const inheritedTools = createInheritedToolSource(pi);
@@ -83,7 +104,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
       () => limits.housekeepingModel,
       refreshCostFooter,
     ),
-    apply: (path, run, summary) => manager?.setSummary(path, run, summary) ?? false,
+    apply: (path, run, summary) =>
+      manager?.setSummary(path, run, summary) ?? false,
     clear: (path, run) => void manager?.clearSummary(path, run),
     onFailure: (message) =>
       context?.ui.notify(
@@ -137,7 +159,17 @@ export default function piSubagent(pi: ExtensionAPI): void {
   };
   let navigation = new AgentNavigationController(returnToWidget);
   let navigationEditor: AgentNavigationEditor | undefined;
-  let navigationEditorFactory: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
+  // modes.json management (the former dotfiles prompt-editor): owns /mode,
+  // shortcuts, the modes file and the editor border/label hooks.
+  const modes = new ModesController(pi);
+  modes.requestRender = () => navigationEditor?.requestRenderNow();
+  /** One diagnostic per session when the border color path breaks. */
+  let borderColorWarned = false;
+  // /mode command + ctrl+shift+m / ctrl+space shortcuts.
+  modes.registerUi(pi);
+  let navigationEditorFactory: Parameters<
+    ExtensionContext["ui"]["setEditorComponent"]
+  >[0];
   let navigationGeneration = 0;
   const closeNavigation = (disposeEditor = false) => {
     navigationGeneration++;
@@ -147,32 +179,60 @@ export default function piSubagent(pi: ExtensionAPI): void {
       navigationEditor = undefined;
     }
   };
-  const installNavigationEditor = (ctx: ExtensionContext, seedHistory: boolean) => {
+  const installNavigationEditor = (
+    ctx: ExtensionContext,
+    seedHistory: boolean,
+  ): boolean => {
     // Pi has one custom-editor slot: do not replace another integration.
-    if (!ctx.hasUI || ctx.mode !== "tui" || !ctx.ui.setEditorComponent) return;
+    if (!ctx.hasUI || ctx.mode !== "tui" || !ctx.ui.setEditorComponent)
+      return false;
     const existingFactory = ctx.ui.getEditorComponent?.();
-    if (existingFactory && existingFactory !== navigationEditorFactory) return;
+    if (existingFactory && existingFactory !== navigationEditorFactory)
+      return false;
     // The host only transfers raw text, not cursor/undo/expanded-paste state.
-    if (ctx.ui.getEditorText?.()) return;
-    const history = buildSessionContext(ctx.sessionManager.getBranch()).messages.flatMap(
-      (message) => {
-        if (message.role !== "user") return [];
-        const content = message.content;
-        return [
-          typeof content === "string"
-            ? content
-            : content
-                .filter((block) => block.type === "text")
-                .map((block) => block.text)
-                .join(""),
-        ];
-      },
-    );
+    if (ctx.ui.getEditorText?.()) return false;
+    const history = buildSessionContext(
+      ctx.sessionManager.getBranch(),
+    ).messages.flatMap((message) => {
+      if (message.role !== "user") return [];
+      const content = message.content;
+      return [
+        typeof content === "string"
+          ? content
+          : content
+              .filter((block) => block.type === "text")
+              .map((block) => block.text)
+              .join(""),
+      ];
+    });
     navigationEditorFactory = (tui, theme, keys) => {
       const editor = new AgentNavigationEditor(tui, theme, keys, {
         // Initial startup hydrates after session_start; replacement editors do not.
         initialHistory: seedHistory ? history : undefined,
         generation: () => navigationGeneration,
+        // modes.json surface: label in the border, mode/bash-aware border color.
+        modeLabelProvider: () => modes.currentModeName,
+        modeLabelColor: (text) =>
+          (context?.ui.theme ?? ctx.ui.theme).fg("dim", text),
+        borderColorProvider: (_label, isBashMode) => {
+          // Read the theme live so a runtime theme switch is not frozen out.
+          const theme = context?.ui.theme ?? ctx.ui.theme;
+          try {
+            if (isBashMode) return theme.getBashModeBorderColor();
+            return modes.getModeBorderColor(theme, modes.currentModeName);
+          } catch (error) {
+            // The two-level theme fallback inside getModeBorderColor already
+            // handles missing theme methods; anything reaching here is a real
+            // bug and must not stay silent.
+            if (!borderColorWarned) {
+              borderColorWarned = true;
+              console.warn(
+                `Editor border color failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+            return (text: string) => text;
+          }
+        },
         canOpen: () =>
           manager !== undefined &&
           context?.mode === "tui" &&
@@ -221,16 +281,55 @@ export default function piSubagent(pi: ExtensionAPI): void {
           if (context) refreshWidget(context);
         },
         onError: (error) =>
-          context?.ui.notify(error instanceof Error ? error.message : String(error), "error"),
+          context?.ui.notify(
+            error instanceof Error ? error.message : String(error),
+            "error",
+          ),
       });
       navigationEditor = editor;
       return editor;
     };
     ctx.ui.setEditorComponent(navigationEditorFactory);
+    return true;
+  };
+  /** One warning per session when a foreign extension owns the editor slot. */
+  let editorSlotWarned = false;
+  const checkEditorSlot = (ctx: ExtensionContext) => {
+    if (editorSlotWarned || !ctx.hasUI || !ctx.ui.getEditorComponent) return;
+    const factory = ctx.ui.getEditorComponent();
+    if (factory && factory !== navigationEditorFactory) {
+      editorSlotWarned = true;
+      ctx.ui.notify(
+        "Another extension owns the input editor; subagent tree navigation is disabled. " +
+          "If you still load the dotfiles prompt-editor, remove it: mode management is built into pi-subagent-manager (/mode).",
+        "warning",
+      );
+    }
+  };
+  /** Merge cross-session prompts into the live editor without reinstalling it. */
+  const mergePromptHistory = async (ctx: ExtensionContext) => {
+    // Own cancel token: bumping the shared navigationGeneration would cancel a
+    // direction-key navigation the user queued between keystroke and microtask.
+    const editor = navigationEditor;
+    const currentPrompts = collectUserPromptsFromEntries(
+      ctx.sessionManager.getBranch(),
+    );
+    const immediate = buildHistoryList(currentPrompts, []);
+    const previous = await loadPromptHistoryForCwd(
+      ctx.cwd,
+      ctx.sessionManager.getSessionFile() ?? undefined,
+    );
+    if (!editor || navigationEditor !== editor) return;
+    const merged = buildHistoryList(currentPrompts, previous);
+    if (historiesMatch(merged, immediate)) return;
+    navigationEditor.replaceHistory(merged.map((entry) => entry.text));
   };
   let persistenceSignature = "";
   const requireManager = () => {
-    if (!manager) throw new Error("Subagent threads are not initialized; start a Pi session first");
+    if (!manager)
+      throw new Error(
+        "Subagent threads are not initialized; start a Pi session first",
+      );
     return manager;
   };
   const widgetThreads = () =>
@@ -286,15 +385,24 @@ export default function piSubagent(pi: ExtensionAPI): void {
     const entries = ctx.sessionManager.getBranch();
     const summarized = new Set(
       entries.flatMap((entry) => {
-        if (entry.type !== "custom_message" || entry.customType !== ROOT_SUMMARY_MESSAGE) return [];
-        const ids = (entry.details as { mailboxIds?: unknown } | undefined)?.mailboxIds;
-        return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+        if (
+          entry.type !== "custom_message" ||
+          entry.customType !== ROOT_SUMMARY_MESSAGE
+        )
+          return [];
+        const ids = (entry.details as { mailboxIds?: unknown } | undefined)
+          ?.mailboxIds;
+        return Array.isArray(ids)
+          ? ids.filter((id): id is string => typeof id === "string")
+          : [];
       }),
     );
     return entries.flatMap((entry) => {
-      if (entry.type !== "custom" || entry.customType !== ROOT_MAILBOX_ENTRY) return [];
+      if (entry.type !== "custom" || entry.customType !== ROOT_MAILBOX_ENTRY)
+        return [];
       const notification = entry.data as RootNotification | undefined;
-      return notification?.rootSessionId === ctx.sessionManager.getSessionId() &&
+      return notification?.rootSessionId ===
+        ctx.sessionManager.getSessionId() &&
         notification.finalRecap === true &&
         typeof notification.content === "string" &&
         typeof notification.details?.mailboxId === "string" &&
@@ -307,13 +415,19 @@ export default function piSubagent(pi: ExtensionAPI): void {
     const entries = ctx.sessionManager.getBranch();
     const delivered = new Set(
       entries.flatMap((entry) => {
-        if (entry.type !== "custom_message" || entry.customType !== "pi-subagent:update") return [];
-        const id = (entry.details as { mailboxId?: unknown } | undefined)?.mailboxId;
+        if (
+          entry.type !== "custom_message" ||
+          entry.customType !== "pi-subagent:update"
+        )
+          return [];
+        const id = (entry.details as { mailboxId?: unknown } | undefined)
+          ?.mailboxId;
         return typeof id === "string" ? [id] : [];
       }),
     );
     return entries.flatMap((entry) => {
-      if (entry.type !== "custom" || entry.customType !== ROOT_MAILBOX_ENTRY) return [];
+      if (entry.type !== "custom" || entry.customType !== ROOT_MAILBOX_ENTRY)
+        return [];
       const notification = entry.data as RootNotification | undefined;
       if (
         notification?.rootSessionId !== ctx.sessionManager.getSessionId() ||
@@ -343,7 +457,9 @@ export default function piSubagent(pi: ExtensionAPI): void {
         (manager?.outstandingAsync() ?? 0) === 0 &&
         pendingSummaries(ctx).length > 0
       ) &&
-      !pendingRootNotifications(ctx).some((notification) => notification.trigger === true)
+      !pendingRootNotifications(ctx).some(
+        (notification) => notification.trigger === true,
+      )
     )
       return;
     const currentGeneration = generation;
@@ -385,11 +501,17 @@ export default function piSubagent(pi: ExtensionAPI): void {
                     "If the overall task is complete, give a concise final recap covering results and failures. " +
                     "Do not spawn or resume agents solely to summarize.\nAgents: " +
                     [
-                      ...new Set(notifications.map((notification) => notification.details.path)),
+                      ...new Set(
+                        notifications.map(
+                          (notification) => notification.details.path,
+                        ),
+                      ),
                     ].join(", "),
                   display: false,
                   details: {
-                    mailboxIds: notifications.map((notification) => notification.details.mailboxId),
+                    mailboxIds: notifications.map(
+                      (notification) => notification.details.mailboxId,
+                    ),
                   },
                 }
               : {
@@ -416,7 +538,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
   };
   const drainRootMailbox = (ctx: ExtensionContext) => {
     if (limits.subagentMode === "off" || ctx.isIdle?.() === false) return;
-    for (const notification of pendingRootNotifications(ctx)) sendRootNotification(notification);
+    for (const notification of pendingRootNotifications(ctx))
+      sendRootNotification(notification);
   };
   const restoreRootMailbox = (ctx: ExtensionContext) => {
     drainRootMailbox(ctx);
@@ -433,7 +556,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
     const thread = event.thread;
     const fmtMs = (ms: number) => `${Math.round(ms / 1000)}s`;
     const elapsed =
-      (thread.elapsedMs ?? 0) + (thread.startedAt ? Date.now() - thread.startedAt : 0);
+      (thread.elapsedMs ?? 0) +
+      (thread.startedAt ? Date.now() - thread.startedAt : 0);
     const message =
       event.kind === "diagnostic"
         ? diagnosticAgentText(thread.path, event.diagnostic)
@@ -465,7 +589,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
           // Recap mode defers the turn until every outstanding async agent has reported.
           trigger:
             !suspendingSummaries &&
-            (event.kind === "timeout" || (event.kind === "settled" && event.async && !recap)),
+            (event.kind === "timeout" ||
+              (event.kind === "settled" && event.async && !recap)),
           details: {
             mailboxId: randomUUID(),
             path: thread.path,
@@ -477,7 +602,9 @@ export default function piSubagent(pi: ExtensionAPI): void {
         pi.appendEntry(ROOT_MAILBOX_ENTRY, notification);
         restoreRootMailbox(requireContext());
       } else {
-        void requireManager().deliver(event.recipient, message).catch(warnDelivery);
+        void requireManager()
+          .deliver(event.recipient, message)
+          .catch(warnDelivery);
         // Global outstandingAsync includes nested descendants, so their last
         // settlement must unblock a root batch even when its parent has finished.
         if (event.kind === "settled") restoreRootMailbox(requireContext());
@@ -508,7 +635,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
         exposure: enabled ? "direct" : "hidden",
         prepareLoadout: inheritedTools.captureLoadout,
         execute: (...args) => {
-          if (limits.subagentMode === "off") throw new Error("Subagent Mode is off");
+          if (limits.subagentMode === "off")
+            throw new Error("Subagent Mode is off");
           inheritedTools.captureContext(args[4]);
           return tool.execute(...args);
         },
@@ -596,12 +724,17 @@ export default function piSubagent(pi: ExtensionAPI): void {
         const routing = resolveRoleRouting(requireContext().cwd, role);
         return { model: routing.model, thinkingLevel: routing.thinking };
       },
-      rootSnapshot: () => buildSessionContext(requireContext().sessionManager.getBranch()).messages,
+      rootSnapshot: () =>
+        buildSessionContext(requireContext().sessionManager.getBranch())
+          .messages,
       getType: getAgentSpec,
       toolsFor,
       onEventError: (error, event) => {
         const message = error instanceof Error ? error.message : String(error);
-        context?.ui.notify(`Subagent ${event.kind} notification failed: ${message}`, "warning");
+        context?.ui.notify(
+          `Subagent ${event.kind} notification failed: ${message}`,
+          "warning",
+        );
       },
       onActivity: (activity) => {
         if (token === generation) housekeeping.notify(activity);
@@ -612,7 +745,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
         // housekeeping so an older request cannot reapply stale text; fresh activity reschedules.
         if (
           event.kind === "update" ||
-          (event.thread.state !== "starting" && event.thread.state !== "running")
+          (event.thread.state !== "starting" &&
+            event.thread.state !== "running")
         )
           housekeeping.settle(event.thread.path);
         refreshWidget(requireContext());
@@ -623,11 +757,23 @@ export default function piSubagent(pi: ExtensionAPI): void {
       },
     });
     manager = instance;
-    if (installEditor) installNavigationEditor(ctx, seedHistory);
+    if (installEditor) {
+      // Only merge when the editor was actually installed: otherwise the
+      // history has no consumer (headless) or would target a stale editor.
+      if (installNavigationEditor(ctx, seedHistory)) {
+        void mergePromptHistory(ctx).catch((error) =>
+          console.warn(
+            `Prompt history merge failed: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      }
+    }
     const entries = ctx.sessionManager.getBranch();
     const entry = [...entries]
       .reverse()
-      .find((item) => item.type === "custom" && item.customType === REGISTRY_ENTRY);
+      .find(
+        (item) => item.type === "custom" && item.customType === REGISTRY_ENTRY,
+      );
     if (entry?.type === "custom") {
       try {
         const data = entry.data as {
@@ -643,11 +789,15 @@ export default function piSubagent(pi: ExtensionAPI): void {
         else persist();
       } catch (error) {
         if (limits.subagentMode !== "off")
-          ctx.ui.notify(`Could not restore subagent registry: ${String(error)}`, "error");
+          ctx.ui.notify(
+            `Could not restore subagent registry: ${String(error)}`,
+            "error",
+          );
       }
     }
     // Recover a persisted settlement whose ledger append was interrupted, including runs paused on reload.
-    for (const saved of instance.saved()) rollupCost({ ...saved.view, updatedAt: Date.now() });
+    for (const saved of instance.saved())
+      rollupCost({ ...saved.view, updatedAt: Date.now() });
     restoreRootMailbox(ctx);
     refreshWidget(ctx);
     if (limits.subagentMode !== "off" && settingsDiagnostics.length)
@@ -655,7 +805,48 @@ export default function piSubagent(pi: ExtensionAPI): void {
   };
   pi.on("session_start", async (event, ctx) => {
     capabilityActive = true;
+    editorSlotWarned = false;
+    // Apply the persisted mode (fresh sessions) or infer the current one first,
+    // so the model/thinking level is settled before the session attaches. A
+    // held lock, an unreadable file or a failing provider must never take the
+    // session down: warn and attach normally.
+    try {
+      await modes.onSessionStart(ctx, event);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Mode initialization failed: ${message}`);
+      if (ctx.hasUI)
+        ctx.ui.notify(`Mode initialization failed: ${message}`, "warning");
+    }
     await attachSession(ctx, true, event.reason !== "startup");
+    checkEditorSlot(ctx);
+    // Re-check after the microtask queue: a foreign editor installed later in
+    // the same lifecycle still evicts the navigation editor. The identity
+    // guard keeps a replaced session's ctx untouched.
+    setTimeout(() => {
+      if (context === ctx) checkEditorSlot(ctx);
+    }, 0);
+  });
+  pi.on("model_select", (event, ctx) => {
+    void modes
+      .onModelSelect(ctx, event)
+      .catch((error) =>
+        console.warn(
+          `Mode re-inference after model switch failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+  });
+  // A manual thinking-level change leaves the mode's pin behind, mirroring
+  // model_select; without it the overlay pin goes stale and /mode store
+  // would persist the old level.
+  pi.on("thinking_level_select", (event, ctx) => {
+    void modes
+      .onThinkingLevelSelect(ctx, event)
+      .catch((error) =>
+        console.warn(
+          `Mode overlay update after thinking change failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
   });
   pi.on("session_tree", async (_event, ctx) => attachSession(ctx));
   const stopWorkingThreads = async () => {
@@ -666,7 +857,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
       if (!manager) return;
       for (const thread of manager.list()) {
         const state = manager.get(thread.path).state;
-        if (state === "starting" || state === "running") await manager.stop("/root", thread.path);
+        if (state === "starting" || state === "running")
+          await manager.stop("/root", thread.path);
       }
     } finally {
       cancelSummary();
@@ -701,22 +893,32 @@ export default function piSubagent(pi: ExtensionAPI): void {
     task: string,
   ) => {
     if (limits.subagentMode === "off") {
-      ctx.ui.notify("Subagent Mode is off. Change it in /agents settings.", "warning");
+      ctx.ui.notify(
+        "Subagent Mode is off. Change it in /agents settings.",
+        "warning",
+      );
       return;
     }
     const current = requireManager();
     if (!isAgentSpecName(agentName)) {
-      ctx.ui.notify(`Unknown agent: ${agentName}; available: ${agentNames.join(", ")}`, "error");
+      ctx.ui.notify(
+        `Unknown agent: ${agentName}; available: ${agentNames.join(", ")}`,
+        "error",
+      );
       return;
     }
-    const base = agentName.replace(/[^A-Za-z0-9_-]/g, "-").replace(/^[^A-Za-z0-9]+/, "") || "agent";
+    const base =
+      agentName.replace(/[^A-Za-z0-9_-]/g, "-").replace(/^[^A-Za-z0-9]+/, "") ||
+      "agent";
     const taken = new Set(current.list().map((thread) => thread.path));
     const prefix = mode === "fork" ? "/root/" : "/";
     let n = 1;
     while (taken.has(`${prefix}${base}-${n}`)) n++;
     const path = `${prefix}${base}-${n}`;
     try {
-      await current.scope("/root").spawn({ path, type: agentName, task, wait: false });
+      await current
+        .scope("/root")
+        .spawn({ path, type: agentName, task, wait: false });
       persist();
       refreshWidget(ctx);
       ctx.ui.notify(
@@ -724,7 +926,10 @@ export default function piSubagent(pi: ExtensionAPI): void {
         "info",
       );
     } catch (error) {
-      ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+      ctx.ui.notify(
+        error instanceof Error ? error.message : String(error),
+        "error",
+      );
     }
   };
   pi.registerCommand("agents", {
@@ -739,28 +944,41 @@ export default function piSubagent(pi: ExtensionAPI): void {
           const paths = (manager?.list() ?? [])
             .map((thread) => thread.path)
             .filter((path) => path !== "/root");
-          const matched = fuzzyFilter(paths, completed[3]!.trimStart(), (path) => path);
+          const matched = fuzzyFilter(
+            paths,
+            completed[3]!.trimStart(),
+            (path) => path,
+          );
           if (matched.length === 0) return null;
           return matched.map((path) => ({
             value: `tree ${path}`,
             label: path,
           }));
         }
-        if ((agentSubcommands as readonly string[]).includes(command)) return null;
+        if ((agentSubcommands as readonly string[]).includes(command))
+          return null;
         if (/^(fork|fresh):/.test(command)) return null;
       }
       const lower = text.toLowerCase();
       const colon = lower.indexOf(":");
       // "fo", "fork", "fork:", "fork:wo" -> every matching `fork:<agent>` / `fresh:<agent>`.
       if (lower === "f")
-        return spawnModes.map((mode) => ({ value: `${mode}:`, label: `${mode}:` }));
-      const modes = spawnModes.filter((mode) =>
-        colon >= 0 ? lower.slice(0, colon) === mode : lower.length >= 2 && mode.startsWith(lower),
+        return spawnModes.map((mode) => ({
+          value: `${mode}:`,
+          label: `${mode}:`,
+        }));
+      // Local name: do not shadow the ModesController instance (`modes`).
+      const matchedModes = spawnModes.filter((mode) =>
+        colon >= 0
+          ? lower.slice(0, colon) === mode
+          : lower.length >= 2 && mode.startsWith(lower),
       );
-      if (modes.length) {
+      if (matchedModes.length) {
         const filter = colon >= 0 ? lower.slice(colon + 1) : "";
-        const matched = filter ? fuzzyFilter(agentNames, filter, (name) => name) : agentNames;
-        const out = modes.flatMap((mode) =>
+        const matched = filter
+          ? fuzzyFilter(agentNames, filter, (name) => name)
+          : agentNames;
+        const out = matchedModes.flatMap((mode) =>
           matched.map((name) => ({
             value: `${mode}:${name}`,
             label: `${mode}:${name}`,
@@ -774,12 +992,23 @@ export default function piSubagent(pi: ExtensionAPI): void {
     },
     handler: async (args, ctx) => {
       const [command, ...rest] = args.trim().split(/\s+/);
-      const spawnMatch = args.trim().match(/^(fork|fresh):(\S+)(?:\s+([\s\S]*))?$/);
+      const spawnMatch = args
+        .trim()
+        .match(/^(fork|fresh):(\S+)(?:\s+([\s\S]*))?$/);
       if (spawnMatch) {
         const task = spawnMatch[3]?.trim();
         if (!task)
-          ctx.ui.notify(`Usage: /agents ${spawnMatch[1]}:${spawnMatch[2]} <task>`, "warning");
-        else await spawnFromCommand(ctx, spawnMatch[1] as "fork" | "fresh", spawnMatch[2]!, task);
+          ctx.ui.notify(
+            `Usage: /agents ${spawnMatch[1]}:${spawnMatch[2]} <task>`,
+            "warning",
+          );
+        else
+          await spawnFromCommand(
+            ctx,
+            spawnMatch[1] as "fork" | "fresh",
+            spawnMatch[2]!,
+            task,
+          );
       } else if (command === "reload") {
         const diagnostics = loadLimits(ctx);
         requireManager().setLimits(limits);
@@ -803,7 +1032,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
             syncTools();
             refreshWidget(ctx);
             restoreRootMailbox(ctx);
-            if (diagnostics.length) ctx.ui.notify(diagnostics.join("\n"), "warning");
+            if (diagnostics.length)
+              ctx.ui.notify(diagnostics.join("\n"), "warning");
           },
         });
       } else if (command === "reap") {

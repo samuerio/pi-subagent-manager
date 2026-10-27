@@ -13,7 +13,10 @@ import { CombinedAutocompleteProvider, rgbColor } from "@earendil-works/pi-tui";
 import { AGENT_COLORS } from "../src/prefs/colors.ts";
 import { createEventBus, type EventBus } from "@earendil-works/pi-coding-agent";
 import piSubagent from "../src/index.ts";
-import { DEFAULT_MANAGER_SETTINGS, loadManagerSettings } from "../src/prefs/settings.ts";
+import {
+  DEFAULT_MANAGER_SETTINGS,
+  loadManagerSettings,
+} from "../src/prefs/settings.ts";
 import { subagentPrompt } from "../src/orch/prompt.ts";
 import { createDialogDriver } from "./helpers/dialogDriver.ts";
 
@@ -51,14 +54,19 @@ async function withCommands(
   const driver = createDialogDriver({
     theme: {
       fg: (_token: string, text: string) => text,
-      colors: Object.fromEntries(AGENT_COLORS.map((color) => [color, rgbColor(238, 238, 238)])),
+      colors: Object.fromEntries(
+        AGENT_COLORS.map((color) => [color, rgbColor(238, 238, 238)]),
+      ),
       style: (text: string) => text,
     } as unknown as Theme,
     width: 100,
     choices: replies,
     unified: true,
     onOpen(options) {
-      assert.equal((options as { overlay?: boolean } | undefined)?.overlay, true);
+      assert.equal(
+        (options as { overlay?: boolean } | undefined)?.overlay,
+        true,
+      );
     },
     onFrame(_component, lines) {
       renders.push(lines);
@@ -73,12 +81,18 @@ async function withCommands(
     registerTool(tool: any) {
       tools.set(tool.name, tool);
     },
+    // Modes controller surface (mode switching stays inert in these tests).
+    getThinkingLevel: () => "high",
+    setThinkingLevel() {},
+    setModel: async () => true,
+    registerShortcut() {},
     registerCommand: (name: string, definition: any) => {
-      assert.equal(name, "agents");
-      command = definition;
+      // /mode registers alongside /agents now; only agents feeds these tests.
+      if (name === "agents") command = definition;
     },
     on: (name: string, handler: Function) => hooks.set(name, handler),
-    appendEntry: (type: string, data: unknown) => sessionManager.appendCustomEntry(type, data),
+    appendEntry: (type: string, data: unknown) =>
+      sessionManager.appendCustomEntry(type, data),
     sendMessage() {},
   } as unknown as ExtensionAPI;
   const ctx = {
@@ -100,7 +114,18 @@ async function withCommands(
   try {
     piSubagent(pi);
     await hooks.get("session_start")!({}, ctx);
-    await body({ command, ctx, hooks, renders, replies, cwd, notifications, tools, widgets, events });
+    await body({
+      command,
+      ctx,
+      hooks,
+      renders,
+      replies,
+      cwd,
+      notifications,
+      tools,
+      widgets,
+      events,
+    });
   } finally {
     await hooks.get("session_shutdown")?.({}, ctx);
     if (oldDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -115,31 +140,34 @@ const SUBCOMMANDS = ["tree", "settings", "reload", "reap"].map((value) => ({
 }));
 
 function seedThreads(ctx: ExtensionCommandContext, paths: string[]) {
-  (ctx.sessionManager as SessionManager).appendCustomEntry("pi-subagent:registry:v1", {
-    version: 1,
-    rootSessionId: ctx.sessionManager.getSessionId(),
-    threads: paths.map((path) => ({
-      view: {
-        path,
-        parent: path.slice(0, path.lastIndexOf("/")),
-        owner: path,
-        type: "worker",
-        state: "completed",
-        task: "task",
-        status: "done",
-        createdAt: 1,
-      },
-      definition: {
-        name: "task",
-        description: "test",
-        systemPrompt: "child prompt",
-        tools: [],
-        skills: [],
-        role: "subagents",
-      },
-      inherited: [],
-    })),
-  });
+  (ctx.sessionManager as SessionManager).appendCustomEntry(
+    "pi-subagent:registry:v1",
+    {
+      version: 1,
+      rootSessionId: ctx.sessionManager.getSessionId(),
+      threads: paths.map((path) => ({
+        view: {
+          path,
+          parent: path.slice(0, path.lastIndexOf("/")),
+          owner: path,
+          type: "worker",
+          state: "completed",
+          task: "task",
+          status: "done",
+          createdAt: 1,
+        },
+        definition: {
+          name: "task",
+          description: "test",
+          systemPrompt: "child prompt",
+          tools: [],
+          skills: [],
+          role: "subagents",
+        },
+        inherited: [],
+      })),
+    },
+  );
 }
 
 test("agents command defaults to settings and saved settings persist and reach the system prompt", async () => {
@@ -147,7 +175,11 @@ test("agents command defaults to settings and saved settings persist and reach t
     replies.push("maxLevels", "5", "subagentMode", "orchestration", "save");
     await command.handler("", ctx);
     assert.match(renders[0]!.join("\n"), /Agents settings/);
-    const { settings } = loadManagerSettings({ cwd, agentDir: cwd, includeProject: false });
+    const { settings } = loadManagerSettings({
+      cwd,
+      agentDir: cwd,
+      includeProject: false,
+    });
     assert.equal(settings.maxLevels, 5);
     assert.equal(settings.subagentMode, "orchestration");
     const result = await hooks.get("before_agent_start")!(
@@ -180,14 +212,22 @@ test("root turn lifecycle collapses the settled preview without losing the agent
     assert.equal(preview().length, 1);
 
     await hooks.get("agent_start")!({}, ctx);
-    assert.deepEqual(preview(), [], "new tasks do not display retained completions");
+    assert.deepEqual(
+      preview(),
+      [],
+      "new tasks do not display retained completions",
+    );
     await command.handler("tree", ctx);
     assert.ok(renders.at(-1)!.join("\n").includes("/root/done"));
     assert.deepEqual(preview(), [], "manual inspection does not revive agents");
     await hooks.get("agent_end")!({}, ctx);
     assert.deepEqual(preview(), []);
     await hooks.get("session_tree")!({}, ctx);
-    assert.deepEqual(preview(), [], "tree rebuilds do not revive hidden agents");
+    assert.deepEqual(
+      preview(),
+      [],
+      "tree rebuilds do not revive hidden agents",
+    );
     // A replacement session must not inherit the previous root turn's UI state.
     await hooks.get("session_start")!({ reason: "resume" }, ctx);
     assert.match(preview().join("\n"), /Agents/);
@@ -200,9 +240,14 @@ test("off startup is silent: no onboarding, visible widget, or tool exposure", a
       assert.deepEqual(renders, []);
       assert.deepEqual(notifications, []);
       assert.ok(widgets.every((widget) => widget === undefined));
-      assert.ok([...tools.values()].every((tool) => tool.exposure === "hidden"));
+      assert.ok(
+        [...tools.values()].every((tool) => tool.exposure === "hidden"),
+      );
       assert.equal(
-        await hooks.get("before_agent_start")!({ systemPrompt: "Main", prompt: "Task" }, ctx),
+        await hooks.get("before_agent_start")!(
+          { systemPrompt: "Main", prompt: "Task" },
+          ctx,
+        ),
         undefined,
       );
     },
@@ -228,7 +273,8 @@ test("saving mode changes updates tools and prompt immediately", async () => {
           `Main\n\n${subagentPrompt({ ...DEFAULT_MANAGER_SETTINGS, subagentMode: mode })}`,
         );
       assert.equal(
-        loadManagerSettings({ cwd, agentDir: cwd, includeProject: false }).settings.subagentMode,
+        loadManagerSettings({ cwd, agentDir: cwd, includeProject: false })
+          .settings.subagentMode,
         mode,
       );
     }
@@ -238,8 +284,12 @@ test("saving mode changes updates tools and prompt immediately", async () => {
 test("dialog subcommands decline RPC mode without opening a dialog", async () => {
   await withCommands(async ({ command, ctx, renders, notifications }) => {
     (ctx as { mode: string }).mode = "rpc";
-    for (const args of ["", "settings", "tree"]) await command.handler(args, ctx);
-    assert.equal(notifications.filter((text) => text.includes("TUI mode")).length, 3);
+    for (const args of ["", "settings", "tree"])
+      await command.handler(args, ctx);
+    assert.equal(
+      notifications.filter((text) => text.includes("TUI mode")).length,
+      3,
+    );
     assert.equal(renders.length, 0);
   });
 });
@@ -250,9 +300,17 @@ test("subcommand completions are fuzzy and unknown subcommands report usage", as
     assert.deepEqual(complete(""), SUBCOMMANDS);
     assert.deepEqual(complete("   "), SUBCOMMANDS);
     assert.equal(complete("sta"), null);
-    assert.deepEqual(complete("SeTtInGs"), [{ value: "settings", label: "settings" }]);
+    assert.deepEqual(complete("SeTtInGs"), [
+      { value: "settings", label: "settings" },
+    ]);
     assert.deepEqual(complete("   tr"), [{ value: "tree", label: "tree" }]);
-    for (const prefix of ["thread", "status ", "reload foo", "settings 5", "tree /missing"])
+    for (const prefix of [
+      "thread",
+      "status ",
+      "reload foo",
+      "settings 5",
+      "tree /missing",
+    ])
       assert.equal(complete(prefix), null, prefix);
     await command.handler("nope", ctx);
     assert.match(notifications.at(-1)!, /tree/);
@@ -266,7 +324,9 @@ test("subcommand completions are fuzzy and unknown subcommands report usage", as
 test("fork:/fresh: complete every built-in agent", async () => {
   await withCommands(async ({ command }) => {
     const values = (prefix: string) =>
-      (command.getArgumentCompletions(prefix) as { value: string }[] | null)?.map((c) => c.value);
+      (
+        command.getArgumentCompletions(prefix) as { value: string }[] | null
+      )?.map((c) => c.value);
     assert.deepEqual(values("f"), ["fork:", "fresh:"]);
     const forks = values("fo")!;
     assert.ok(forks.length > 1 && forks.every((v) => v.startsWith("fork:")));
@@ -280,34 +340,44 @@ test("fork:/fresh: complete every built-in agent", async () => {
       values("fresh:"),
       names.map((n) => `fresh:${n}`),
     );
-    assert.deepEqual(values(`fresh:${names[0]}`)?.includes(`fresh:${names[0]}`), true);
+    assert.deepEqual(
+      values(`fresh:${names[0]}`)?.includes(`fresh:${names[0]}`),
+      true,
+    );
     assert.equal(command.getArgumentCompletions(`fork:${names[0]} do`), null);
   });
 });
 
 test("tree opens overlays and status is rejected, and tree completes thread paths", async () => {
-  await withCommands(async ({ command, ctx, hooks, renders, notifications }) => {
-    seedThreads(ctx, ["/root/alpha", "/root/zeta"]);
-    await hooks.get("session_tree")!({}, ctx);
-    const alpha = [{ value: "tree /root/alpha", label: "/root/alpha" }];
-    assert.deepEqual(command.getArgumentCompletions("tree "), [
-      ...alpha,
-      { value: "tree /root/zeta", label: "/root/zeta" },
-    ]);
-    assert.deepEqual(command.getArgumentCompletions("  TREE /root/al"), alpha);
-    assert.deepEqual(command.getArgumentCompletions("tree alpha"), alpha);
-    assert.deepEqual(command.getArgumentCompletions("tree"), [{ value: "tree", label: "tree" }]);
+  await withCommands(
+    async ({ command, ctx, hooks, renders, notifications }) => {
+      seedThreads(ctx, ["/root/alpha", "/root/zeta"]);
+      await hooks.get("session_tree")!({}, ctx);
+      const alpha = [{ value: "tree /root/alpha", label: "/root/alpha" }];
+      assert.deepEqual(command.getArgumentCompletions("tree "), [
+        ...alpha,
+        { value: "tree /root/zeta", label: "/root/zeta" },
+      ]);
+      assert.deepEqual(
+        command.getArgumentCompletions("  TREE /root/al"),
+        alpha,
+      );
+      assert.deepEqual(command.getArgumentCompletions("tree alpha"), alpha);
+      assert.deepEqual(command.getArgumentCompletions("tree"), [
+        { value: "tree", label: "tree" },
+      ]);
 
-    await command.handler("status", ctx);
-    assert.match(notifications.at(-1)!, /Usage:/);
-    assert.equal(renders.length, 0);
-    notifications.length = 0;
-    await command.handler("tree", ctx);
-    assert.match(renders.at(-1)!.join("\n"), /Agents tree/);
-    await command.handler("tree /root/zeta", ctx);
-    assert.ok(renders.at(-1)!.some((line) => /›.*\/root\/zeta/.test(line)));
-    assert.doesNotMatch(notifications.at(-1) ?? "", /Usage:/);
-  });
+      await command.handler("status", ctx);
+      assert.match(notifications.at(-1)!, /Usage:/);
+      assert.equal(renders.length, 0);
+      notifications.length = 0;
+      await command.handler("tree", ctx);
+      assert.match(renders.at(-1)!.join("\n"), /Agents tree/);
+      await command.handler("tree /root/zeta", ctx);
+      assert.ok(renders.at(-1)!.some((line) => /›.*\/root\/zeta/.test(line)));
+      assert.doesNotMatch(notifications.at(-1) ?? "", /Usage:/);
+    },
+  );
 });
 
 test("CombinedAutocompleteProvider completes /agents then its subcommands", async () => {
@@ -319,7 +389,8 @@ test("CombinedAutocompleteProvider completes /agents then its subcommands", asyn
         {
           name: "agents",
           description: command.description,
-          getArgumentCompletions: (prefix: string) => command.getArgumentCompletions(prefix),
+          getArgumentCompletions: (prefix: string) =>
+            command.getArgumentCompletions(prefix),
         },
       ],
       cwd,
@@ -327,14 +398,30 @@ test("CombinedAutocompleteProvider completes /agents then its subcommands", asyn
     );
     const signal = new AbortController().signal;
     const apply = async (line: string, value: string) => {
-      const suggestions = await provider.getSuggestions([line], 0, line.length, { signal });
+      const suggestions = await provider.getSuggestions(
+        [line],
+        0,
+        line.length,
+        { signal },
+      );
       const item = suggestions?.items.find((entry) => entry.value === value);
-      assert.ok(item, `missing completion ${value} for ${JSON.stringify(line)}`);
-      return provider.applyCompletion([line], 0, line.length, item, suggestions!.prefix).lines[0];
+      assert.ok(
+        item,
+        `missing completion ${value} for ${JSON.stringify(line)}`,
+      );
+      return provider.applyCompletion(
+        [line],
+        0,
+        line.length,
+        item,
+        suggestions!.prefix,
+      ).lines[0];
     };
 
     assert.equal(await apply("/ag", "agents"), "/agents ");
-    const subcommands = await provider.getSuggestions(["/agents "], 0, 8, { signal });
+    const subcommands = await provider.getSuggestions(["/agents "], 0, 8, {
+      signal,
+    });
     assert.deepEqual(
       subcommands?.items.map((item) => item.value),
       SUBCOMMANDS.map((item) => item.value),
@@ -377,59 +464,95 @@ test("saving widget mode refreshes immediately and reload reads the persisted ch
         assert.doesNotMatch(lines.join("\n"), /Press ←/);
       } else assert.ok(lines.length > 1);
       assert.equal(
-        loadManagerSettings({ cwd, agentDir: cwd, includeProject: false }).settings.widgetMode,
+        loadManagerSettings({ cwd, agentDir: cwd, includeProject: false })
+          .settings.widgetMode,
         mode,
       );
     }
-    const { settings } = loadManagerSettings({ cwd, agentDir: cwd, includeProject: false });
+    const { settings } = loadManagerSettings({
+      cwd,
+      agentDir: cwd,
+      includeProject: false,
+    });
     writeFileSync(
       join(cwd, "subagent-manager", "settings.json"),
       JSON.stringify({ ...settings, widgetMode: "minimal" }),
     );
     await command.handler("reload", ctx);
-    assert.equal(renderWidget().length, 1, "Reload applies a choice changed on disk");
+    assert.equal(
+      renderWidget().length,
+      1,
+      "Reload applies a choice changed on disk",
+    );
     await hooks.get("session_tree")!({}, ctx);
-    assert.equal(renderWidget().length, 1, "Session attachment reloads the choice");
+    assert.equal(
+      renderWidget().length,
+      1,
+      "Session attachment reloads the choice",
+    );
   });
 });
 
 test("agents reap persists removals, refreshes the widget, and completes by name", async () => {
-  await withCommands(async ({ command, ctx, hooks, notifications, widgets, replies, renders }) => {
-    seedThreads(ctx, ["/root/old", "/root/old/child"]);
-    await hooks.get("session_tree")!({}, ctx);
-    assert.deepEqual(command.getArgumentCompletions("reap"), [{ value: "reap", label: "reap" }]);
-    const before = widgets.length;
-    replies.push("confirm");
-    await command.handler("reap", ctx);
-    assert.match(notifications.at(-1)!, /Reaped 2 completed agent/);
-    assert.match(renders.flat().join("\n"), /2 completed agents will be reaped/);
-    assert.match(renders.flat().join("\n"), /You will not be able to resume them anymore/);
-    assert.ok(widgets.length > before);
-    assert.equal(command.getArgumentCompletions("tree /root/old"), null);
-    await hooks.get("session_tree")!({}, ctx);
-    await command.handler("reap", ctx);
-    assert.match(notifications.at(-1)!, /No completed agents eligible/);
-  });
+  await withCommands(
+    async ({
+      command,
+      ctx,
+      hooks,
+      notifications,
+      widgets,
+      replies,
+      renders,
+    }) => {
+      seedThreads(ctx, ["/root/old", "/root/old/child"]);
+      await hooks.get("session_tree")!({}, ctx);
+      assert.deepEqual(command.getArgumentCompletions("reap"), [
+        { value: "reap", label: "reap" },
+      ]);
+      const before = widgets.length;
+      replies.push("confirm");
+      await command.handler("reap", ctx);
+      assert.match(notifications.at(-1)!, /Reaped 2 completed agent/);
+      assert.match(
+        renders.flat().join("\n"),
+        /2 completed agents will be reaped/,
+      );
+      assert.match(
+        renders.flat().join("\n"),
+        /You will not be able to resume them anymore/,
+      );
+      assert.ok(widgets.length > before);
+      assert.equal(command.getArgumentCompletions("tree /root/old"), null);
+      await hooks.get("session_tree")!({}, ctx);
+      await command.handler("reap", ctx);
+      assert.match(notifications.at(-1)!, /No completed agents eligible/);
+    },
+  );
 });
 
 test("agents reap cancel and dismiss preserve completed sessions", async () => {
-  await withCommands(async ({ command, ctx, hooks, replies, renders, notifications }) => {
-    seedThreads(ctx, ["/root/old"]);
-    await hooks.get("session_tree")!({}, ctx);
-    for (const reply of ["cancel", undefined]) {
-      replies.push(reply);
-      await command.handler("reap", ctx);
-      assert.match(renders.flat().join("\n"), /1 completed agent will be reaped/);
-      assert.deepEqual(command.getArgumentCompletions("tree /root/old"), [
-        { value: "tree /root/old", label: "/root/old" },
-      ]);
-      assert.equal(
-        notifications.some((message) => message.startsWith("Reaped")),
-        false,
-      );
+  await withCommands(
+    async ({ command, ctx, hooks, replies, renders, notifications }) => {
+      seedThreads(ctx, ["/root/old"]);
       await hooks.get("session_tree")!({}, ctx);
-    }
-  });
+      for (const reply of ["cancel", undefined]) {
+        replies.push(reply);
+        await command.handler("reap", ctx);
+        assert.match(
+          renders.flat().join("\n"),
+          /1 completed agent will be reaped/,
+        );
+        assert.deepEqual(command.getArgumentCompletions("tree /root/old"), [
+          { value: "tree /root/old", label: "/root/old" },
+        ]);
+        assert.equal(
+          notifications.some((message) => message.startsWith("Reaped")),
+          false,
+        );
+        await hooks.get("session_tree")!({}, ctx);
+      }
+    },
+  );
 });
 
 test("agents reap without completed agents opens no confirmation", async () => {
@@ -451,17 +574,29 @@ test("agents reap refuses to bypass confirmation outside the TUI", async () => {
   });
 });
 
-
 test("parent public capability probe reports version/protocol only while manager enabled and alive", async () => {
   for (const initialMode of ["off", "orchestration"] as const) {
-    await withCommands(async ({ events, hooks, ctx }) => {
-      let reply: any;
-      const probe = () => events.emit("pi-subagent-manager:capabilities:probe", { respond(value: unknown) { reply = value; } });
-      probe();
-      if (initialMode === "off") assert.equal(reply, undefined);
-      else { assert.equal(reply.protocol, 1); assert.match(reply.version, /^\d+\.\d+\.\d+$/); }
-      await hooks.get("session_shutdown")!({}, ctx);
-      reply = undefined; probe(); assert.equal(reply, undefined);
-    }, { initialMode });
+    await withCommands(
+      async ({ events, hooks, ctx }) => {
+        let reply: any;
+        const probe = () =>
+          events.emit("pi-subagent-manager:capabilities:probe", {
+            respond(value: unknown) {
+              reply = value;
+            },
+          });
+        probe();
+        if (initialMode === "off") assert.equal(reply, undefined);
+        else {
+          assert.equal(reply.protocol, 1);
+          assert.match(reply.version, /^\d+\.\d+\.\d+$/);
+        }
+        await hooks.get("session_shutdown")!({}, ctx);
+        reply = undefined;
+        probe();
+        assert.equal(reply, undefined);
+      },
+      { initialMode },
+    );
   }
 });

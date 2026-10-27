@@ -41,11 +41,11 @@ Other packages' settings (e.g. `.pi/subagents.json`) are never read here.
 
 How much the main model is encouraged to delegate.
 
-| Option                    | What it does                                                                                                         | Use when                                                         |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Option                    | What it does                                                                                           | Use when                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | `off`                     | Hides subagent tools; injects no guidance. Widget and notifications are hidden. `/agents` still works. | You want plain pi for a while, without uninstalling.             |
-| `opportunistic` (default) | Tools on. Main model delegates only parallelizable or very large tasks; otherwise works directly.                    | Everyday use.                                                    |
-| `orchestration`           | Tools on. `/root` delegates **all** execution and only coordinates and synthesizes.                                  | Big multi-part tasks where you want the main context kept clean. |
+| `opportunistic` (default) | Tools on. Main model delegates only parallelizable or very large tasks; otherwise works directly.      | Everyday use.                                                    |
+| `orchestration`           | Tools on. `/root` delegates **all** execution and only coordinates and synthesizes.                    | Big multi-part tasks where you want the main context kept clean. |
 
 - Orchestration is a prompt policy, not a tool restriction. Workers don't inherit the root-only rule.
 
@@ -53,10 +53,10 @@ How much the main model is encouraged to delegate.
 
 Controls the subagent status display above the input box. Choose **Status Widget** in `/agents` settings and save with **Ctrl+S**.
 
-| Option             | Display |
-| ------------------ | ------- |
-| `full` (default)   | A compact tree with one row per agent, task/state, metrics and navigation hints. |
-| `minimal`          | One line of theme-colored status counts plus cumulative input `↑` / output `↓` tokens for agents currently starting or running. |
+| Option           | Display                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `full` (default) | A compact tree with one row per agent, task/state, metrics and navigation hints.                                                |
+| `minimal`        | One line of theme-colored status counts plus cumulative input `↑` / output `↓` tokens for agents currently starting or running. |
 
 Minimal mode groups starting agents with running agents and excludes the main conversation. Token totals exclude completed, stopped, failed and paused agents. The fullscreen tree remains available via `/agents tree` in either mode. Arrow keys at the draft edge walk a fixed line: **tree ← full ← minimal**. With **Full** configured, all three states are reachable: **Right (→)** at the end of the main draft (or in an empty input) collapses full to the one-line minimal view for this session only, without saving preferences; **Left (←)** at the start of the draft first returns minimal to full, and from full opens the tree (only while agents are starting or running). With **Minimal** configured the line is just **tree ← minimal**: Left opens the tree, and Right does nothing because minimal is already the right edge. In the fullscreen tree, **Right** on a leaf row (after folds and descents are exhausted) closes the tree and returns to the widget (full, or minimal if configured). Session startup/switch/reload restores the configured mode.
 
@@ -72,14 +72,14 @@ Each built-in agent has a [role-specific icon](default-agents.md#nerd-font-icons
 
 Choose a loader in `/agents` settings and save with **Ctrl+S**, or set `loaderStyle` in your settings file:
 
-| Style | Setting | Running frames | Requires Nerd Font |
-| --- | --- | --- | --- |
-| Circle | `circle` (saved default) | Circle slices | Yes |
-| Braille | `braille` | ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏ | No (standard Unicode, not ASCII) |
-| Hourglass | `hourglass` | Hourglass stages | Yes |
-| ASCII | `ascii` | `\| / - \\` | No |
-| ASCII Star | `ascii-star` | `+ x *` | No |
-| ASCII Pulse | `ascii-pulse` | `= * -` | No |
+| Style       | Setting                  | Running frames      | Requires Nerd Font               |
+| ----------- | ------------------------ | ------------------- | -------------------------------- |
+| Circle      | `circle` (saved default) | Circle slices       | Yes                              |
+| Braille     | `braille`                | ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏ | No (standard Unicode, not ASCII) |
+| Hourglass   | `hourglass`              | Hourglass stages    | Yes                              |
+| ASCII       | `ascii`                  | `\| / - \\`         | No                               |
+| ASCII Star  | `ascii-star`             | `+ x *`             | No                               |
+| ASCII Pulse | `ascii-pulse`            | `= * -`             | No                               |
 
 With **[labs] Nerd Font icons** off, the picker shows only Braille and ASCII palettes. With it on, all palettes are available. Saved Circle/Hourglass preferences render as ASCII while Nerd Fonts are off, without changing the saved preference. ASCII palettes use `+`, `=`, `!`, and `#` for completed, paused, failed, and stopped states. The compact ASCII animations are inspired by [cli-spinners](https://github.com/sindresorhus/cli-spinners/blob/main/spinners.json) (`line`, `star2`, and `toggle13`).
 
@@ -89,11 +89,11 @@ The Labs preview shows every family's running animation frames and completed, pa
 
 Open **[labs] Footer display** in `/agents settings` to choose the location, display value, and icon, then return and save. The stable ID/key is **`subagent_cost`**.
 
-| Value | Output |
-| --- | --- |
-| `pi-footer-status` (default) | Publishes `💵 $0.0000` via Pi’s `setStatus` API. In `/footer`, add **Extension Status** and pick **`subagent_cost`** from the status-key selector. |
-| `pi-footer-event` | Emits `pi-footer:update-widget` with `widgetId: "subagent_cost"`. Add **Pi Event Value**, enter **Widget ID** manually, and enable **Raw value only**. Event IDs do not appear in the status selector. Without an extension providing `/footer`, preserves the fallback footer, using the selected value/icon. |
-| `pi-status` | **Replace Pi status**: sets the manager’s Pi status to `Subagents: 💵 $0.0000` or `Total: 💵 $0.0000`; no pi-footer events or custom footer. |
+| Value                        | Output                                                                                                                                                                                                                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pi-footer-status` (default) | Publishes `💵 $0.0000` via Pi’s `setStatus` API. In `/footer`, add **Extension Status** and pick **`subagent_cost`** from the status-key selector.                                                                                                                                                             |
+| `pi-footer-event`            | Emits `pi-footer:update-widget` with `widgetId: "subagent_cost"`. Add **Pi Event Value**, enter **Widget ID** manually, and enable **Raw value only**. Event IDs do not appear in the status selector. Without an extension providing `/footer`, preserves the fallback footer, using the selected value/icon. |
+| `pi-status`                  | **Replace Pi status**: sets the manager’s Pi status to `Subagents: 💵 $0.0000` or `Total: 💵 $0.0000`; no pi-footer events or custom footer.                                                                                                                                                                   |
 
 Both status modes use the same public Pi status API: third-party footers may also display Pi status-only output. These modes never replace your footer. **Display value** (`costValue`) is independent of location: `subagents` (default) shows settled subagent-only USD; `total` adds the main session’s cost. In all modes, running subagent costs settle on completion, pause, stop, or failure. Values publish on session start/reload, immediately when a subagent starts (even at zero), after settlement/settings changes, and when main-session turns end. Switching locations clears the previous output; shutdown clears the published value.
 
@@ -154,10 +154,10 @@ Experimental, **off by default**. A small model of your choice writes a **one-li
 
 Open **[labs] Housekeeping model** in `/agents settings` and set two things, then save with **Ctrl+S**:
 
-| Key | Meaning |
-| --- | --- |
-| `housekeepingEnabled` | The opt-in toggle (`false` by default). |
-| `housekeepingModel` | `provider/model-id` of the housekeeping model, or `""` for none. |
+| Key                   | Meaning                                                          |
+| --------------------- | ---------------------------------------------------------------- |
+| `housekeepingEnabled` | The opt-in toggle (`false` by default).                          |
+| `housekeepingModel`   | `provider/model-id` of the housekeeping model, or `""` for none. |
 
 Pick the model in the dialog's searchable picker. It lists **scoped models first** (the main session's `/scoped-models`), then **every other available model** (any model with working credentials). A small, fast, inexpensive model is usually enough. Turning **Summaries** Off keeps the chosen model for later; **No model** clears it. Both keys follow the normal Global / Current Project layering, and the dots show where each is saved.
 
@@ -177,11 +177,16 @@ Pick the model in the dialog's searchable picker. It lists **scoped models first
 ## Model routing (`roles` in `modes.json`)
 
 Agents do not choose models. Each built-in agent names a role, and the active mode in `modes.json`
-(the same file the prompt-editor extension manages) pins that role:
+pins that role. Mode management is built in: `/mode` (and `ctrl+shift+m` to pick, `ctrl+space` to
+cycle) switches, stores, creates, renames and deletes modes, and edits each role pin through the
+model picker; the editor border carries the active mode label and a mode-colored border. A project
+`.pi/modes.json` wins over the global file. The former dotfiles `prompt-editor` extension is
+superseded: remove it from your extensions, otherwise it re-takes the single custom-editor slot,
+disables subagent tree navigation, and renames this command to `/mode:1`/`/mode:2`.
 
-| Role        | Serves                    |
-| ----------- | ------------------------- |
-| `oracle`    | `oracle_spawn`            |
+| Role        | Serves                                                            |
+| ----------- | ----------------------------------------------------------------- |
+| `oracle`    | `oracle_spawn`                                                    |
 | `subagents` | `task_spawn`, `finder_spawn`, `librarian_spawn`, `reviewer_spawn` |
 
 ```json
@@ -190,8 +195,16 @@ Agents do not choose models. Each built-in agent names a role, and the active mo
   "modes": {
     "default": {
       "roles": {
-        "oracle": { "provider": "anthropic", "modelId": "claude-sonnet-5", "thinkingLevel": "high" },
-        "subagents": { "provider": "deepseek", "modelId": "deepseek-flash", "thinkingLevel": "medium" }
+        "oracle": {
+          "provider": "anthropic",
+          "modelId": "claude-sonnet-5",
+          "thinkingLevel": "high"
+        },
+        "subagents": {
+          "provider": "deepseek",
+          "modelId": "deepseek-flash",
+          "thinkingLevel": "medium"
+        }
       }
     }
   }

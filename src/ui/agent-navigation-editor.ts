@@ -11,6 +11,7 @@ import {
   type Keybinding,
   type TUI,
 } from "@earendil-works/pi-tui";
+import { decorateEditorTopBorder } from "../modes/editor-label.ts";
 
 export interface AgentNavigationEditorOptions {
   /** Must return the whole navigation interaction, so repeated Left cannot reopen it. */
@@ -33,6 +34,21 @@ export interface AgentNavigationEditorOptions {
    * Pi hydrates the installed editor after the startup session_start event.
    */
   initialHistory?: readonly string[];
+  /**
+   * Mode label for the top border (modes.json integration). When it returns a
+   * non-empty string, the border's top line carries the label.
+   */
+  modeLabelProvider?: () => string;
+  /** Label color; when unset the label inherits the border color. */
+  modeLabelColor?: (text: string) => string;
+  /**
+   * Border color factory, re-evaluated every render (mode + bash mode aware).
+   * Receives the current label and whether the draft starts with `!`.
+   */
+  borderColorProvider?: (
+    label: string,
+    isBashMode: boolean,
+  ) => (text: string) => string;
 }
 
 /**
@@ -62,6 +78,49 @@ export class AgentNavigationEditor extends CustomEditor {
     for (const text of navigation.initialHistory ?? []) this.addToHistory(text);
   }
 
+  /** In-place history replacement (e.g. after cross-session history loads). */
+  replaceHistory(entries: readonly string[]): void {
+    // The base class keeps these public in the runtime but private in its
+    // declarations; reset through the same surface addToHistory writes to.
+    const internals = this as unknown as {
+      history: string[];
+      historyIndex: number;
+      historyDraft: unknown;
+    };
+    // Leave a history browse in progress alone: the user's draft/position
+    // wins over a background merge; they get the merged list next time.
+    if (internals.historyIndex !== -1) return;
+    internals.history = [];
+    internals.historyIndex = -1;
+    internals.historyDraft = null;
+    for (const text of entries) this.addToHistory(text);
+    this.tui.requestRender();
+  }
+
+  /** Immediate repaint, e.g. after a mode switch changes the border color. */
+  requestRenderNow(): void {
+    this.tui.requestRender();
+  }
+
+  override render(width: number): string[] {
+    const label = this.navigation.modeLabelProvider?.() ?? "";
+    const isBashMode = this.getText().trimStart().startsWith("!");
+    const border = this.navigation.borderColorProvider?.(label, isBashMode);
+    if (border) this.borderColor = border;
+    const lines = super.render(width);
+    if (!label) return lines;
+    return decorateEditorTopBorder({
+      lines,
+      width,
+      label,
+      bashMode: isBashMode,
+      borderColor: this.borderColor,
+      labelColor:
+        this.navigation.modeLabelColor ??
+        ((text: string) => this.borderColor(text)),
+    });
+  }
+
   /** Invalidates queued work without resetting a competing extension's editor. */
   dispose(): void {
     this.disposed = true;
@@ -69,8 +128,10 @@ export class AgentNavigationEditor extends CustomEditor {
   }
 
   private ordinaryArrow(data: string, direction: "left" | "right"): boolean {
-    if (!matchesKey(data, direction === "left" ? Key.left : Key.right)) return false;
-    const action = direction === "left" ? "tui.editor.cursorLeft" : "tui.editor.cursorRight";
+    if (!matchesKey(data, direction === "left" ? Key.left : Key.right))
+      return false;
+    const action =
+      direction === "left" ? "tui.editor.cursorLeft" : "tui.editor.cursorRight";
     // Editor uses the global TUI bindings; CustomEditor uses the injected app
     // manager. Both must agree, and a conflicting remap wins conservatively.
     for (const keys of [this.navigationKeys, getKeybindings()]) {
@@ -92,9 +153,13 @@ export class AgentNavigationEditor extends CustomEditor {
 
   override handleInput(data: string): void {
     const outer = this.dispatchDepth === 0;
-    const direction = this.ordinaryArrow(data, "left") ? "left"
-      : this.ordinaryArrow(data, "right") ? "right" : undefined;
-    if (outer && (!direction || (this.pending && this.pending !== direction))) this.inputEpoch++;
+    const direction = this.ordinaryArrow(data, "left")
+      ? "left"
+      : this.ordinaryArrow(data, "right")
+        ? "right"
+        : undefined;
+    if (outer && (!direction || (this.pending && this.pending !== direction)))
+      this.inputEpoch++;
     const previousPaste = this.pastePending;
     const wasPaste = previousPaste || data.includes("\x1b[200~");
     // Update before dispatch: Pi recursively sends a suffix after the end
@@ -105,10 +170,12 @@ export class AgentNavigationEditor extends CustomEditor {
     const cursor = this.getCursor();
     const text = this.getText();
     const lines = text.split("\n");
-    const atBoundary = direction === "left"
-      ? cursor.line === 0 && cursor.col === 0
-      : direction === "right" && cursor.line === lines.length - 1 &&
-        cursor.col === lines.at(-1)!.length;
+    const atBoundary =
+      direction === "left"
+        ? cursor.line === 0 && cursor.col === 0
+        : direction === "right" &&
+          cursor.line === lines.length - 1 &&
+          cursor.col === lines.at(-1)!.length;
     const eligible =
       outer &&
       direction !== undefined &&
@@ -141,7 +208,8 @@ export class AgentNavigationEditor extends CustomEditor {
     } finally {
       this.dispatchDepth--;
       if (this.onChange === observeChange) this.onChange = originalChange;
-      if (this.onExtensionShortcut === observeShortcut) this.onExtensionShortcut = originalShortcut;
+      if (this.onExtensionShortcut === observeShortcut)
+        this.onExtensionShortcut = originalShortcut;
       if (consumed) this.pastePending = previousPaste;
       if (!consumed) {
         // Track only public input; over-suppress when precedence is ambiguous.
@@ -179,9 +247,15 @@ export class AgentNavigationEditor extends CustomEditor {
     // Right walks one step toward minimal. The decision is rechecked in the microtask.
     const action = (): "expand" | "tree" | "collapse" | undefined => {
       if (direction === "right")
-        return this.navigation.collapseWidget && (this.navigation.canCollapse?.() ?? false)
-          ? "collapse" : undefined;
-      if (this.navigation.expandWidget && (this.navigation.canExpand?.() ?? false)) return "expand";
+        return this.navigation.collapseWidget &&
+          (this.navigation.canCollapse?.() ?? false)
+          ? "collapse"
+          : undefined;
+      if (
+        this.navigation.expandWidget &&
+        (this.navigation.canExpand?.() ?? false)
+      )
+        return "expand";
       return this.navigation.canOpen() ? "tree" : undefined;
     };
     const chosen = action();
@@ -207,9 +281,13 @@ export class AgentNavigationEditor extends CustomEditor {
       try {
         // Call within the checked microtask: an extra Promise.then would leave
         // a gap in which root ownership could change after validation.
-        void Promise.resolve(chosen === "tree" ? this.navigation.openTree()
-          : chosen === "expand" ? this.navigation.expandWidget!()
-          : this.navigation.collapseWidget!())
+        void Promise.resolve(
+          chosen === "tree"
+            ? this.navigation.openTree()
+            : chosen === "expand"
+              ? this.navigation.expandWidget!()
+              : this.navigation.collapseWidget!(),
+        )
           .catch((error: unknown) => this.navigation.onError?.(error))
           .finally(() => {
             this.pending = undefined;
