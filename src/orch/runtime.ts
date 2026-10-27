@@ -434,7 +434,7 @@ export function createDriverFactory(
         "When finished, give your final answer normally so it can be handed back. To retain unfinished work without a final answer, call agent_pause (if available), then stop; resume only when instructed.",
         ...(spawnToolNames().some((name) => allowed.has(name)) && allowed.has("agent_wait")
           ? [
-              "Name child paths with concise task-based kebab-case slugs (e.g. /root/controller-security-research), independent of type.",
+              "Name child paths with concise task-based kebab-case slugs (e.g. /root/controller-security-research), independent of type; relative names fork your conversation, and only the main thread can spawn fresh independent roots.",
               "For independent parallel work, launch all siblings with a spawn tool and wait:false before calling agent_wait. Children share the main conversation's depth and concurrency limits; waiting parents count as active. Do not delegate work beyond your assigned scope.",
             ]
           : []),

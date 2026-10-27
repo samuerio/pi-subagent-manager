@@ -14,6 +14,7 @@
 ```
 
 - Relative names resolve under the calling agent.
+- A single-segment absolute path (e.g. `/fix-auth`) from the main thread starts an independent root fresh. Only `/root` can spawn those: an agent may address only its descendants, so fresh spawning is a main-thread action.
 - A nested parent must already exist.
 - `/root` can address every tree. Children can spawn immediate children and address only their descendants.
 - Dot segments, URL escapes and ambiguous slash spellings are rejected.
