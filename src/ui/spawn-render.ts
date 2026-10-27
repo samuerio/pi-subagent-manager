@@ -202,10 +202,20 @@ export function renderSpawnResult(
 
   if (!expanded)
     return new Text(theme.fg("muted", spawnCollapsedText(thread)), 0, 0);
+  return settledThreadView(thread, theme);
+}
 
-  // Expanded reads top-down like a report: what was asked (task, muted), a
-  // full-width rule separating instruction from answer, then the output, and
-  // finally the footer (state, model, metrics) right above the session file.
+/**
+ * Settled expanded report: what was asked (task, muted), a full-width rule
+ * separating instruction from answer, then the output, and finally the footer
+ * (state, model, metrics) right above the session file. Shared by the spawn
+ * verbs and the thread-management tools (agent_wait/steer/status/stop).
+ */
+export function settledThreadView(
+  thread: ThreadView & { outputTruncated?: boolean },
+  theme: Theme,
+): Container {
+  const settled = thread.state !== "starting" && thread.state !== "running";
   const container = new Container();
   // Breathing room between the call line above and the report body.
   container.addChild(new Spacer(1));
@@ -224,10 +234,10 @@ export function renderSpawnResult(
   }
   if (output?.trim()) {
     container.addChild(new Markdown(output.trim(), 0, 0, getMarkdownTheme()));
-  } else if (thread.state !== "starting" && thread.state !== "running") {
-    // An unsettled child has not produced output yet; saying so would be noise.
+  } else if (settled) {
     container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
   }
+  // An unsettled child has not produced output yet; saying so would be noise.
   if (thread.outputTruncated) {
     container.addChild(
       new Text(
@@ -245,4 +255,101 @@ export function renderSpawnResult(
     );
   }
   return container;
+}
+
+/**
+ * Thread tools take no description: the call line is just the name and path.
+ * An explicit timeoutMs (agent_wait's wait ceiling, agent_steer's re-armed
+ * report timer) is appended in pi's bash-tool style, muted and in seconds.
+ */
+export function renderThreadCall(
+  args: unknown,
+  theme: Theme,
+  name: string,
+): Text {
+  const path = callPath(args);
+  const timeout = (args as { timeoutMs?: unknown } | undefined)?.timeoutMs;
+  const timeoutPart =
+    typeof timeout === "number" && Number.isFinite(timeout)
+      ? theme.fg("muted", ` (timeout ${formatTimeoutSeconds(timeout)}s)`)
+      : "";
+  return new Text(
+    `${theme.fg("toolTitle", theme.bold(name))}${path ? ` ${path}` : ""}${timeoutPart}`,
+    0,
+    0,
+  );
+}
+
+function formatTimeoutSeconds(timeoutMs: number): string {
+  const seconds = timeoutMs / 1000;
+  return Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
+}
+
+/**
+ * Renderer for the thread-management tools. Same visual language as the spawn
+ * verbs: a single ThreadView collapses to the status line and expands into the
+ * settled report; agent_status's list collapses to a state census and expands
+ * to one status line per thread. Anything else falls back to the envelope text.
+ */
+export function renderThreadResult(
+  result: unknown,
+  options: unknown,
+  theme: Theme,
+  context?: unknown,
+): Text | Container | Component {
+  const content = (
+    result as { content?: Array<{ type: string; text?: string }> }
+  ).content;
+  const text = content?.[0]?.type === "text" ? content[0].text : undefined;
+  const expanded =
+    (options as { expanded?: boolean } | undefined)?.expanded === true;
+  const isError =
+    (context as { isError?: boolean } | undefined)?.isError === true;
+  const fallback = () =>
+    isError
+      ? new Text(theme.fg("error", text ?? "(no output)"), 0, 0)
+      : new Text(text ?? "(no output)", 0, 0);
+
+  const details = (result as { details?: unknown }).details;
+  if (Array.isArray(details)) {
+    const threads = details.filter(
+      (entry): entry is ThreadView =>
+        !!entry &&
+        typeof (entry as ThreadView).path === "string" &&
+        typeof (entry as ThreadView).state === "string",
+    );
+    if (!threads.length) return fallback();
+    if (!expanded) {
+      const counts = new Map<string, number>();
+      for (const thread of threads)
+        counts.set(thread.state, (counts.get(thread.state) ?? 0) + 1);
+      const census = [...counts]
+        .map(([state, n]) => `${state} ${n}`)
+        .join(", ");
+      return new Text(
+        theme.fg("muted", `${threads.length} threads: ${census}`),
+        0,
+        0,
+      );
+    }
+    const container = new Container();
+    for (const thread of threads)
+      container.addChild(
+        new Text(
+          theme.fg("muted", `${thread.path}  ${spawnCollapsedText(thread)}`),
+          0,
+          0,
+        ),
+      );
+    return container;
+  }
+
+  // The state duck-check separates real views from lookalikes: error results
+  // arrive with details wiped by createErrorToolResult, and any unexpected
+  // payload shape renders as its envelope text instead of garbage fields.
+  const thread = details as ThreadView | undefined;
+  if (!thread?.path || typeof thread.state !== "string") return fallback();
+  if (!expanded)
+    return new Text(theme.fg("muted", spawnCollapsedText(thread)), 0, 0);
+  return settledThreadView(thread, theme);
 }

@@ -13,7 +13,12 @@ import type {
 } from "../types.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { renderSpawnCall, renderSpawnResult } from "../ui/spawn-render.ts";
+import {
+  renderSpawnCall,
+  renderSpawnResult,
+  renderThreadCall,
+  renderThreadResult,
+} from "../ui/spawn-render.ts";
 import { captureToolCall } from "../ui/tool-call-format.ts";
 
 const LIVE_HEARTBEAT_MS = 1000;
@@ -242,6 +247,19 @@ export function agentTools(
     execute: async (_id, params, signal, onUpdate) =>
       execute(params, signal, onUpdate),
   });
+  /** Thread-management verbs share the spawn verbs' collapsed/report visuals. */
+  const threadTool = (
+    name: string,
+    description: string,
+    parameters: any,
+    execute: Parameters<typeof make>[3],
+  ): ToolDefinition => ({
+    ...make(name, description, parameters, execute),
+    renderCall: (args: unknown, theme: Theme) =>
+      renderThreadCall(args, theme, name),
+    renderResult: renderThreadResult,
+  });
+
   const spawnTools = listAgentSpecs().map((spec) => {
     const toolName = spawnToolName(spec.name);
     return {
@@ -284,7 +302,7 @@ export function agentTools(
   });
   return [
     ...spawnTools,
-    make(
+    threadTool(
       "agent_wait",
       "Wait for a descendant to complete, fail, stop or pause. Paused means no final answer handback. Cancellation/timeouts do not stop the child; poll status or wait again.",
       Type.Object({
@@ -298,7 +316,7 @@ export function agentTools(
           compact(await threads().wait(params.path, params.timeoutMs, signal)),
         ),
     ),
-    make(
+    threadTool(
       "agent_steer",
       'Send input to a descendant and/or re-arm its report-only timeout. With message: working threads receive queued steering; completed, stopped and paused threads resume the SAME session with its previous context. With timeoutMs (30000–300000): the timeout fires that many ms from now, replacing any pending timer. To extend a running background agent\'s reporting timer without sending input, call agent_steer({path: "/root/task", timeoutMs: 120000}) and omit message entirely. This resets the timer to 120000 ms from now, not an addition to the old deadline. timeoutMs WITHOUT message only re-arms the timeout of a running child (error if not running) and does not steer, interrupt or resume it; with both, steer and re-arm. At least one is required. Returns immediately; use agent_wait for the result.',
       Type.Object({
@@ -330,7 +348,7 @@ export function agentTools(
           ),
         ),
     ),
-    make(
+    threadTool(
       "agent_status",
       "Read a thread's status, including bounded child extension diagnostics, or list visible descendants. Root can inspect all trees. Completion retains the session; pause retains it without final answer handback.",
       Type.Object({ path: Type.Optional(path) }),
@@ -360,7 +378,7 @@ export function agentTools(
         terminate: true,
       }),
     ),
-    make(
+    threadTool(
       "agent_stop",
       "Stop a descendant and its working children. Session history is retained; resume with agent_steer. This is cooperative cancellation, not sandbox process termination.",
       Type.Object({ path }),
