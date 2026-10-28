@@ -11,6 +11,29 @@ export const THINKING_LEVELS = [
   "max",
 ] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+/**
+ * Inline-output and pagination caps, shared by the payload side (orch/tools.ts),
+ * the renderers (ui/spawn-render.ts) and the completion message (index.ts).
+ * Leaf-module constants: tools.ts imports ui/spawn-render.ts, so a ui→orch
+ * import would be a cycle.
+ */
+/** Cap on the inline output carried by spawn/wait completion payloads. */
+export const OUTPUT_PREVIEW_CHARS = 16000;
+/** Default character page size for agent_output. */
+export const OUTPUT_PAGE_CHARS = 8000;
+/**
+ * The one truncation fact, shared by the settled-report renderer (wrapped in
+ * parentheses) and the async completion message (wrapped in brackets). Design
+ * rule: pagination says "more" as a data-side directive in the agent_output
+ * page body; truncation says "truncated" here, with the structured
+ * outputTruncated/outputCharacters fields as the model-facing channel.
+ */
+export function truncationNote(
+  outputCharacters: number | undefined,
+  path: string,
+): string {
+  return `output truncated at ${outputCharacters ?? OUTPUT_PREVIEW_CHARS} characters · agent_output ${path} for the rest`;
+}
 /** Model routing role pinned in modes.json: the advisor or the general worker pool. */
 export const AGENT_ROLES = ["oracle", "subagents"] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
@@ -137,6 +160,8 @@ export interface LiveToolCall {
 /** Live-only details shape for in-flight spawn updates; the settled result strips these fields. */
 export type SpawnLiveDetails = ThreadView & {
   outputTruncated?: boolean;
+  /** Untruncated output length, set by compact() when outputTruncated is set. */
+  outputCharacters?: number;
   recentCalls?: LiveToolCall[];
   /** Tail of the latest assistant text, data-side bounded. */
   assistantPreview?: string;

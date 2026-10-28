@@ -125,7 +125,11 @@ test("the status list expands to one status line per thread", () => {
 
 // --- agent_output pagination page ---------------------------------------------
 
-test("an output page collapses to position plus the more marker", () => {
+// Pagination guidance is data-side (the execute appends the "[N more
+// characters …]" directive to the page text), so the renderer stays silent:
+// collapsed pages render nothing and expanded pages are just the body.
+
+test("an output page collapses to silence; the call line carries the range", () => {
   const view = renderThreadResult(
     envelope({
       path: "/root/worker",
@@ -139,27 +143,10 @@ test("an output page collapses to position plus the more marker", () => {
   const text = stripTerminalSequences(
     (view as { render: (width: number) => string[] }).render(400).join("\n"),
   ).trim();
-  assert.equal(text, "/root/worker · chars 0-16000 of 45210 · more");
+  assert.equal(text, "");
 });
 
-test("the last page omits the more marker and derives the start offset", () => {
-  const view = renderThreadResult(
-    envelope({
-      path: "/root/worker",
-      text: "y".repeat(2000),
-      totalCharacters: 45210,
-      nextOffset: null,
-    }),
-    { expanded: false },
-    theme,
-  );
-  const text = stripTerminalSequences(
-    (view as { render: (width: number) => string[] }).render(400).join("\n"),
-  ).trim();
-  assert.equal(text, "/root/worker · chars 43210-45210 of 45210");
-});
-
-test("an output page expands into markdown with the position footer", () => {
+test("an output page expands into just the markdown body", () => {
   const container = renderThreadResult(
     envelope({
       path: "/root/worker",
@@ -173,8 +160,25 @@ test("an output page expands into markdown with the position footer", () => {
   const report = rendered(container as { render: (width: number) => string[] });
   assert.match(report, /Findings/);
   assert.match(report, /The test was flaky/);
-  assert.match(report, /chars 0-32 of 32/);
+  assert.doesNotMatch(report, /chars /);
   assert.doesNotMatch(report, /· more/);
+});
+
+test("an empty page expands into a placeholder", () => {
+  const container = renderThreadResult(
+    envelope({
+      path: "/root/worker",
+      text: "",
+      totalCharacters: 0,
+      nextOffset: null,
+    }),
+    { expanded: true },
+    theme,
+  );
+  assert.match(
+    rendered(container as { render: (width: number) => string[] }),
+    /\(empty page\)/,
+  );
 });
 
 // --- fallbacks ---------------------------------------------------------------
@@ -259,4 +263,63 @@ test("agent_steer's re-armed report timer renders the same way", () => {
       .join("\n"),
   ).trim();
   assert.equal(text, "agent_steer /root/worker (timeout 30s)");
+});
+
+test("agent_output's call line renders the requested character range", () => {
+  const render = (args: unknown) =>
+    stripTerminalSequences(
+      (
+        renderThreadCall(args, theme, "agent_output") as {
+          render: (width: number) => string[];
+        }
+      )
+        .render(400)
+        .join("\n"),
+    ).trim();
+  // Presence-based: only explicitly passed args produce a range.
+  assert.equal(render({ path: "/root/worker" }), "agent_output /root/worker");
+  assert.equal(
+    render({ path: "/root/worker", offset: 0, limit: 8000 }),
+    "agent_output /root/worker:C1-C8000",
+  );
+  assert.equal(
+    render({ path: "/root/worker", offset: 8000 }),
+    "agent_output /root/worker:C8001-C16000",
+  );
+  assert.equal(
+    render({ path: "/root/worker", limit: 2000 }),
+    "agent_output /root/worker:C1-C2000",
+  );
+  // Strict schemas emit null for omitted optionals; null counts as absent.
+  assert.equal(
+    render({ path: "/root/worker", offset: null, limit: null }),
+    "agent_output /root/worker",
+  );
+  // Streamed partial or garbage values render nothing, never :CNaN.
+  assert.equal(
+    render({ path: "/root/worker", offset: "x" }),
+    "agent_output /root/worker",
+  );
+  // A zero limit is outside the schema (minimum 1); never render :C1-C0.
+  assert.equal(
+    render({ path: "/root/worker", limit: 0 }),
+    "agent_output /root/worker",
+  );
+});
+
+test("the truncation line reports the payload length and points at agent_output", () => {
+  const truncated = {
+    ...thread(),
+    outputTruncated: true,
+    outputCharacters: 24000,
+  };
+  assert.match(
+    rendered(settledThreadView(truncated, theme)),
+    /output truncated at 24000 characters · agent_output \/root\/worker for the rest/,
+  );
+  // The fallback keeps pre-payload fixtures on the historical cap.
+  assert.match(
+    rendered(settledThreadView({ ...thread(), outputTruncated: true }, theme)),
+    /output truncated at 16000 characters/,
+  );
 });

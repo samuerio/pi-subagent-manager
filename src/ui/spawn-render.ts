@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { LiveToolCall, SpawnLiveDetails, ThreadView } from "../types.ts";
+import { OUTPUT_PAGE_CHARS, truncationNote } from "../types.ts";
 import { modelLabel } from "./thread-tree.ts";
 import { threadMetrics } from "./ui.ts";
 
@@ -212,7 +213,10 @@ export function renderSpawnResult(
  * verbs and the thread-management tools (agent_wait/steer/status/stop).
  */
 export function settledThreadView(
-  thread: ThreadView & { outputTruncated?: boolean },
+  thread: ThreadView & {
+    outputTruncated?: boolean;
+    outputCharacters?: number;
+  },
   theme: Theme,
 ): Container {
   const settled = thread.state !== "starting" && thread.state !== "running";
@@ -238,10 +242,16 @@ export function settledThreadView(
     container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
   }
   // An unsettled child has not produced output yet; saying so would be noise.
+  // UI-only line: the model-facing channel for truncation is the structured
+  // outputTruncated/outputCharacters fields (compact()) plus the async
+  // completion message copy in index.ts, which shares this exact wording.
   if (thread.outputTruncated) {
     container.addChild(
       new Text(
-        theme.fg("muted", "(output truncated at 16000 characters)"),
+        theme.fg(
+          "muted",
+          `(${truncationNote(thread.outputCharacters, thread.path)})`,
+        ),
         0,
         0,
       ),
@@ -273,8 +283,9 @@ export function renderThreadCall(
     typeof timeout === "number" && Number.isFinite(timeout)
       ? theme.fg("muted", ` (timeout ${formatTimeoutSeconds(timeout)}s)`)
       : "";
+  const range = callRange(args);
   return new Text(
-    `${theme.fg("toolTitle", theme.bold(name))}${path ? ` ${path}` : ""}${timeoutPart}`,
+    `${theme.fg("toolTitle", theme.bold(name))}${path ? ` ${path}` : ""}${range ? theme.fg("muted", range) : ""}${timeoutPart}`,
     0,
     0,
   );
@@ -283,6 +294,34 @@ export function renderThreadCall(
 function formatTimeoutSeconds(timeoutMs: number): string {
   const seconds = timeoutMs / 1000;
   return Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
+}
+
+/**
+ * agent_output's read range, 1-based inclusive like read's `:1-80`, rendered
+ * whenever the model passed offset and/or limit (null counts as absent —
+ * strict schemas emit null for omitted optionals). For a full page the end
+ * numeral equals the follow-up call's offset, so the model can copy it over.
+ * An absent limit is filled from the shared execute default. The end numeral
+ * is the request boundary, not the actual-content boundary: on a short last
+ * page it can overshoot the true end, but it still equals the follow-up
+ * call's offset, which is what the model copies over.
+ */
+function callRange(args: unknown): string {
+  const { offset, limit } = (args ?? {}) as {
+    offset?: unknown;
+    limit?: unknown;
+  };
+  const start =
+    typeof offset === "number" && Number.isFinite(offset)
+      ? Math.max(0, offset)
+      : null;
+  const size =
+    typeof limit === "number" && Number.isFinite(limit) && limit > 0
+      ? limit
+      : null;
+  if (start === null && size === null) return "";
+  const from = start ?? 0;
+  return `:C${from + 1}-C${from + (size ?? OUTPUT_PAGE_CHARS)}`;
 }
 
 /**
@@ -358,17 +397,7 @@ export function renderThreadResult(
     typeof page.text === "string" &&
     typeof page.totalCharacters === "number"
   )
-    return renderOutputPage(
-      {
-        path: page.path,
-        text: page.text,
-        totalCharacters: page.totalCharacters,
-        nextOffset:
-          typeof page.nextOffset === "number" ? page.nextOffset : null,
-      },
-      expanded,
-      theme,
-    );
+    return renderOutputPage({ text: page.text }, expanded, theme);
 
   // The state duck-check separates real views from lookalikes: error results
   // arrive with details wiped by createErrorToolResult, and any unexpected
@@ -381,30 +410,22 @@ export function renderThreadResult(
 }
 
 /**
- * One page of a thread's output. The envelope carries no start offset; it is
- * derived from totalCharacters/nextOffset, which is exact unless the model
- * skipped a page mid-sequence (cosmetic then, not structural).
+ * One page of a thread's output. Pagination guidance is data-side: the
+ * execute appends the "[N more characters … Use offset=X to continue.]"
+ * directive to the page text, so the expanded view is just the body and the
+ * collapsed view is silent — the call line's :C range carries the position,
+ * and the JSON envelope's nextOffset carries it to the model.
  */
 function renderOutputPage(
-  page: {
-    path: string;
-    text: string;
-    totalCharacters: number;
-    nextOffset: number | null;
-  },
+  page: { text: string },
   expanded: boolean,
   theme: Theme,
 ): Text | Container {
-  const end = page.nextOffset ?? page.totalCharacters;
-  const start = Math.max(0, end - page.text.length);
-  const footer = `${page.path} · chars ${start}-${end} of ${page.totalCharacters}${page.nextOffset !== null ? " · more" : ""}`;
-  if (!expanded) return new Text(theme.fg("muted", footer), 0, 0);
+  if (!expanded) return new Text("", 0, 0);
   const container = new Container();
   container.addChild(new Spacer(1));
   if (page.text.trim())
     container.addChild(new Markdown(page.text, 0, 0, getMarkdownTheme()));
   else container.addChild(new Text(theme.fg("muted", "(empty page)"), 0, 0));
-  container.addChild(new Spacer(1));
-  container.addChild(new Text(theme.fg("muted", footer), 0, 0));
   return container;
 }

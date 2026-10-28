@@ -11,6 +11,7 @@ import type {
   TranscriptObservation,
   TranscriptSnapshot,
 } from "../types.ts";
+import { OUTPUT_PAGE_CHARS, OUTPUT_PREVIEW_CHARS } from "../types.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import {
@@ -30,15 +31,19 @@ const path = Type.String({
 const text = Type.String({ minLength: 1 });
 function compact(
   thread: ThreadView,
-): ThreadView & { outputTruncated?: boolean } {
-  if (thread.output && thread.output.length > 16000)
+): ThreadView & { outputTruncated?: boolean; outputCharacters?: number } {
+  if (thread.output && thread.output.length > OUTPUT_PREVIEW_CHARS)
     return {
       ...thread,
-      output: thread.output.slice(0, 16000),
+      output: thread.output.slice(0, OUTPUT_PREVIEW_CHARS),
       outputTruncated: true,
+      // True untruncated length; renderers and the completion message read
+      // this instead of a third hardcoded cap.
+      outputCharacters: thread.output.length,
     };
   return thread;
 }
+
 function result(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
@@ -386,21 +391,45 @@ export function agentTools(
     ),
     threadTool(
       "agent_output",
-      "Read completed thread output in character pages. Paused threads deliberately have no final answer handback. All sessions can be viewed by the user with /agents tree; select a thread and press Enter to inspect it.",
+      "Read completed thread output in character pages. When any result reports outputTruncated, call agent_output <path> for the rest. Paused threads deliberately have no final answer handback. All sessions can be viewed by the user with /agents tree; select a thread and press Enter to inspect it.",
       Type.Object({
         path,
         offset: Type.Optional(Type.Integer({ minimum: 0 })),
-        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 16000 })),
+        limit: Type.Optional(
+          Type.Integer({ minimum: 1, maximum: OUTPUT_PREVIEW_CHARS }),
+        ),
       }),
       (params) => {
         const output = threads().output(params.path),
           offset = params.offset ?? 0,
-          limit = params.limit ?? 8000;
+          limit = params.limit ?? OUTPUT_PAGE_CHARS,
+          total = output.length;
+        // Overshooting the end is a model arithmetic error (or content the
+        // model cannot see: paused threads withhold their turn output, so an
+        // empty output is not evidence the child produced nothing); say so in
+        // the page body, cause-neutral, so the model does not over-conclude.
+        if (offset >= total)
+          return result({
+            path: threads().get(params.path).path,
+            text:
+              total === 0
+                ? "(no content available; the thread may be paused or its output empty)"
+                : `(no content at offset ${offset}; the output is ${total} characters)`,
+            totalCharacters: total,
+            nextOffset: null,
+          });
+        const text = output.slice(offset, offset + limit),
+          nextOffset = offset + limit < total ? offset + limit : null;
         return result({
           path: threads().get(params.path).path,
-          text: output.slice(offset, offset + limit),
-          totalCharacters: output.length,
-          nextOffset: offset + limit < output.length ? offset + limit : null,
+          // Pagination guidance is data-side (like read's "[N more lines]"):
+          // the directive reaches the model as executable instructions.
+          text:
+            nextOffset !== null
+              ? `${text}\n\n[${total - offset - limit} more characters in this output. Use offset=${nextOffset} to continue.]`
+              : text,
+          totalCharacters: total,
+          nextOffset,
         });
       },
     ),

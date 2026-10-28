@@ -154,6 +154,9 @@ test("the expanded view renders status, output, truncation and session", () => {
     outputIndex >= 0 && statusIndex > outputIndex && statusIndex < sessionIndex,
   );
   assert.match(lines, /truncated at 16000/);
+  // The shared fact string keeps the notification copy (index.ts) identical
+  // to the renderer line.
+  assert.match(lines, /agent_output \/root\/worker for the rest/);
   assert.match(lines, /session: /);
 });
 

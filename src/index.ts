@@ -39,6 +39,7 @@ import {
   checklistStatus,
 } from "./orch/checklist-integration.ts";
 import { agentTools } from "./orch/tools.ts";
+import { OUTPUT_PREVIEW_CHARS, truncationNote } from "./types.ts";
 import { updateWidget } from "./ui/ui.ts";
 import { canOpenDialog, dialogMenu } from "./ui/dialog.ts";
 import {
@@ -570,7 +571,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
               `Recent output:\n${event.recentOutput || "(none yet)"}\n` +
               "Decide: agent_steer with timeoutMs only (no message) to be notified again later without disturbing it, agent_wait for it, agent_steer to redirect, agent_stop to cancel, or let it continue."
             : thread.state === "completed"
-              ? `Agent ${thread.path} completed. Final answer:\n${thread.output?.slice(0, 16000) ?? "(no text)"}${(thread.output?.length ?? 0) > 16000 ? "\n[Output truncated; use agent_output for more.]" : ""}`
+              ? `Agent ${thread.path} completed. Final answer:\n${thread.output?.slice(0, OUTPUT_PREVIEW_CHARS) ?? "(no text)"}${(thread.output?.length ?? 0) > OUTPUT_PREVIEW_CHARS ? `\n[${truncationNote(thread.output?.length, thread.path)}.]` : ""}`
               : `Agent ${thread.path} is ${thread.state}: ${thread.status}. ${thread.state === "paused" ? "No answer handback; send input to resume the same session." : "Session retained for further input."}`;
     try {
       if (event.recipient === "/root") {
