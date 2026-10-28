@@ -354,9 +354,9 @@ test("the live trail collapses earlier calls into a counter", () => {
       theme,
     ) as never,
   );
-  assert.match(lines, /⋯ 8 earlier calls/);
+  assert.match(lines, /⋯ 12 earlier calls/);
   assert.match(lines, /src\/file19\.ts/);
-  assert.doesNotMatch(lines, /src\/file7\.ts/);
+  assert.doesNotMatch(lines, /src\/file11\.ts/);
 });
 
 test("the live preview truncates wide lines without leaking escape codes", () => {
@@ -458,4 +458,187 @@ test("a settled result never renders the live view, even with live fields presen
   );
   assert.doesNotMatch(expanded, /→ read/);
   assert.match(expanded, /Findings/);
+});
+test("the live expanded view shows the task above a guarded rule", () => {
+  const lines = rendered(
+    renderSpawnResult(
+      callResult(
+        liveThread({
+          recentCalls: [call({ name: "bash", summary: "pnpm test" })],
+        }),
+      ),
+      { expanded: true, isPartial: true },
+      theme,
+    ) as never,
+  );
+  const list = lines.split("\n");
+  const taskIndex = list.findIndex((line) =>
+    line.includes("Investigate the flaky test"),
+  );
+  const ruleIndex = list.findIndex((line) => line.includes("\u2500"));
+  const callIndex = list.findIndex((line) => line.includes("→ bash"));
+  assert.ok(taskIndex >= 0 && ruleIndex > taskIndex && ruleIndex < callIndex);
+});
+
+test("the live expanded view omits the rule without activity", () => {
+  const lines = rendered(
+    renderSpawnResult(
+      callResult(liveThread()),
+      { expanded: true, isPartial: true },
+      theme,
+    ) as never,
+  );
+  // The starting/queued block still shows the brief, but nothing to separate.
+  assert.match(lines, /Investigate the flaky test/);
+  assert.doesNotMatch(lines, /\u2500/);
+});
+
+test("the live task clips at four wrapped lines with an inline marker", () => {
+  const task = Array.from(
+    { length: 10 },
+    (_, index) => `Task line ${index}`,
+  ).join("\n");
+  const lines = rendered(
+    renderSpawnResult(
+      callResult(
+        liveThread({
+          task,
+          recentCalls: [call({ name: "bash", summary: "pnpm test" })],
+        }),
+      ),
+      { expanded: true, isPartial: true },
+      theme,
+    ) as never,
+  );
+  // Source lines are wrapped individually, so even width 400 keeps ten
+  // wrapped lines and engages the clip path; the marker coverage lives in
+  // the width-30 re-render below.
+  assert.doesNotMatch(lines, /\.\.\./);
+  const narrow = renderSpawnResult(
+    callResult(
+      liveThread({
+        task,
+        recentCalls: [call({ name: "bash", summary: "pnpm test" })],
+      }),
+    ),
+    { expanded: true, isPartial: true },
+    theme,
+  ) as { render: (width: number) => string[] };
+  const raw = stripTerminalSequences(narrow.render(30).join("\n"));
+  assert.match(raw, /Task line 0/);
+  assert.match(raw, /Task line 3 …/);
+  assert.ok(!raw.includes("Task line 4"));
+  // truncateToWidth must not layer its own "..." under the inline " …".
+  assert.ok(!raw.includes("..."));
+});
+
+test("the live task keeps its clip marker at narrow width", () => {
+  const longLine = `word `.repeat(60).trim();
+  const lines = renderSpawnResult(
+    callResult(liveThread({ task: longLine })),
+    { expanded: true, isPartial: true },
+    theme,
+  ) as { render: (width: number) => string[] };
+  const raw = lines.render(18).join("\n");
+  assert.ok(raw.includes("…"));
+  // The task band itself stays within width with the marker intact; other
+  // lines (status footer) are owned by their own renderers.
+  const taskBand = stripTerminalSequences(raw)
+    .split("\n")
+    .filter((line) => line.includes("word"));
+  assert.ok(taskBand.length > 0);
+  assert.ok(taskBand.every((line) => line.length <= 18));
+  assert.ok(taskBand.at(-1)!.trimEnd().endsWith("…"));
+});
+
+test("the settled view still renders the full multi-paragraph task", () => {
+  const task = Array.from(
+    { length: 12 },
+    (_, index) => `Paragraph ${index}`,
+  ).join("\n\n");
+  const lines = rendered(
+    renderSpawnResult(
+      callResult(thread({ task, output: "answer" })),
+      { expanded: true },
+      theme,
+    ),
+  );
+  assert.match(lines, /Paragraph 0/);
+  assert.match(lines, /Paragraph 11/);
+  assert.doesNotMatch(lines, /…/);
+});
+test("the live rule guard covers calls without task and preview-only", () => {
+  // Task missing but calls present: no dangling rule above the trail.
+  const callLines = rendered(
+    renderSpawnResult(
+      callResult(
+        liveThread({
+          task: "",
+          recentCalls: [call({ name: "bash", summary: "pnpm test" })],
+        }),
+      ),
+      { expanded: true, isPartial: true },
+      theme,
+    ) as never,
+  );
+  assert.doesNotMatch(callLines, /\u2500/);
+  assert.match(callLines, /→ bash/);
+  // Preview only, no calls: the rule separates the task from the preview.
+  const previewLines = rendered(
+    renderSpawnResult(
+      callResult(
+        liveThread({
+          assistantPreview: "Line one of progress.",
+        }),
+      ),
+      { expanded: true, isPartial: true },
+      theme,
+    ) as never,
+  );
+  const list = previewLines.split("\n");
+  const taskIndex = list.findIndex((line) =>
+    line.includes("Investigate the flaky test"),
+  );
+  const ruleIndex = list.findIndex((line) => line.includes("\u2500"));
+  const previewIndex = list.findIndex((line) =>
+    line.includes("Line one of progress"),
+  );
+  assert.ok(
+    taskIndex >= 0 && ruleIndex > taskIndex && ruleIndex < previewIndex,
+  );
+});
+
+test("the live task strips control characters before width math", () => {
+  const lines = rendered(
+    renderSpawnResult(
+      callResult(
+        liveThread({
+          task: "Fix\x1b[31m the flaky\x07 test",
+        }),
+      ),
+      { expanded: true, isPartial: true },
+      theme,
+    ) as never,
+  );
+  assert.match(lines, /Fix the flaky  test/);
+  assert.ok(!lines.includes("\x1b"));
+  assert.ok(!lines.includes("\x07"));
+});
+test("the live task budget skips blank paragraph lines", () => {
+  const task = "one\n\ntwo\n\nthree\n\nfour\n\nfive";
+  const lines = rendered(
+    renderSpawnResult(
+      callResult(liveThread({ task })),
+      { expanded: true, isPartial: true },
+      theme,
+    ) as never,
+  );
+  const list = stripTerminalSequences(lines).split("\n");
+  const kept = list.filter((line) => /^(one|two|three|four|five)/.test(line));
+  // The 5th visible line is dropped content: the budget line must carry the
+  // inline marker (asserting "four …" exactly catches the exact-fill case
+  // where the overflow check never fires).
+  assert.deepEqual(kept, ["one", "two", "three", "four …"]);
+  // The blank separators never render, and the budget line carries the marker.
+  assert.ok(!lines.includes("five"));
 });

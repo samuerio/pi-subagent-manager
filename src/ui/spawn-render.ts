@@ -12,7 +12,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { LiveToolCall, SpawnLiveDetails, ThreadView } from "../types.ts";
 import { OUTPUT_PAGE_CHARS, truncationNote } from "../types.ts";
 import { modelLabel } from "./thread-tree.ts";
-import { threadMetrics } from "./ui.ts";
+import { sanitizeText, threadMetrics } from "./ui.ts";
 
 /**
  * Shared display layer for the five spawn verbs. Everything here is pure
@@ -85,8 +85,65 @@ function statusLine(thread: ThreadView): string {
     : "model pending";
   return `${thread.state} · ${model} · ${threadMetrics(thread)}`;
 }
-const MAX_LIVE_TRAIL_LINES = 12;
+const MAX_LIVE_TRAIL_LINES = 8;
 const LIVE_PREVIEW_LINES = 4;
+/** Task lines shown in the live expanded view; head-anchored, clipped with " …". */
+const LIVE_TASK_LINES = 4;
+
+/**
+ * Wrapped muted task lines for the live expanded view: head-anchored (reading
+ * order = the start, unlike the tail-anchored trail/preview), clipped with an
+ * inline " …" on the last kept line when the task exceeds max. The 2-column
+ * reserve keeps the marker from being eaten by the outer truncateToWidth.
+ */
+function taskLines(
+  task: string,
+  width: number,
+  theme: Theme,
+  max: number,
+): string[] {
+  const w = Math.max(1, width);
+  // The view is head-anchored: past max + 1 wrapped lines nothing is visible,
+  // so only that budget is ever wrapped. Tasks are unbounded (model-authored)
+  // and this runs on every streamed frame; wrapping a whole 54KB task costs
+  // ~3.5ms per render, so the input is pre-sliced to the visible budget.
+  const budget = max + 1;
+  const wrapped: string[] = [];
+  let clipped = false;
+  for (const line of task.split("\n")) {
+    const remaining = budget - wrapped.length;
+    if (remaining <= 0) {
+      // Budget full; a further visible line is what the marker announces.
+      if (sanitizeText(line).trim().length > 0) clipped = true;
+      break;
+    }
+    // Sanitize the whole line first (linear scan, cheap): slicing raw text
+    // could cut an escape sequence in half and leave stray "[31m" garbage.
+    const clean = sanitizeText(line).slice(0, remaining * w + 2);
+    for (const piece of wrapTextWithAnsi(clean, w)) {
+      // Blank paragraph separators must not spend the task budget.
+      if (piece.trim().length === 0) continue;
+      if (wrapped.length === budget) {
+        clipped = true;
+        break;
+      }
+      wrapped.push(piece);
+    }
+  }
+  // Budget filled exactly: the (max+1)th line exists but nothing followed it,
+  // so the overflow/later-line checks never fired. Dropped content must still
+  // carry the marker.
+  if (wrapped.length > max) clipped = true;
+  const kept = wrapped.slice(0, max).map((line) => truncateToWidth(line, w));
+  if (clipped && kept.length > 0) {
+    const last = kept.length - 1;
+    kept[last] =
+      // Empty ellipsis: the inline " …" below is the one and only marker.
+      truncateToWidth(wrapped[last], Math.max(1, w - 2), "") +
+      theme.fg("dim", " …");
+  }
+  return kept.map((line) => theme.fg("muted", line));
+}
 
 function callColor(call: LiveToolCall, childActive: boolean): ThemeColor {
   if (call.isError) return "error";
@@ -105,22 +162,34 @@ function callText(call: LiveToolCall, childActive: boolean): string {
 }
 
 /**
- * Live expanded view: status line, then a rolling window of the child's tool
- * calls (newest at the bottom, earlier ones collapsed into a counter), then a
- * tail of the latest assistant text. The window is capped inside render(width)
- * because renderResult never sees a width.
+ * Live expanded view: the task header (same slot as the settled report), then
+ * a rolling window of the child's tool calls (newest at the bottom, earlier
+ * ones collapsed into a counter), then a tail of the latest assistant text.
+ * The window is capped inside render(width) because renderResult never sees a
+ * width.
  */
 export function liveExpandedLines(
   thread: SpawnLiveDetails,
   width: number,
   theme: Theme,
 ): string[] {
-  // Same skeleton as the settled report: breathing room, the body, then the
-  // status footer — with the trail in the activity-first order of the
-  // collapsed live block. A child with no output yet just shows its trail.
+  // Same skeleton as the settled report: breathing room, task header, rule,
+  // the body (activity), then the status footer — so the live→settled morph
+  // swaps the body without reshuffling the header. A child with no output yet
+  // now shows its brief instead of just a status line.
   const lines: string[] = [""];
   const childActive = thread.state === "starting" || thread.state === "running";
   const calls = thread.recentCalls ?? [];
+  const task = thread.task?.trim();
+  // Guard the rule on lines actually produced: a task that trims truthy but
+  // sanitizes to nothing would otherwise hang a rule under no instruction.
+  const taskHeader = task ? taskLines(task, width, theme, LIVE_TASK_LINES) : [];
+  if (taskHeader.length > 0) lines.push(...taskHeader);
+  const preview = thread.assistantPreview?.trim();
+  // Settled-style rule between instruction and body; no dangling rule when
+  // there is no body or no header (mirrors settledThreadView).
+  if (taskHeader.length > 0 && (calls.length > 0 || preview))
+    lines.push(theme.fg("muted", "\u2500".repeat(Math.max(1, width))));
   if (calls.length) {
     const rendered = calls.map((call) => ({
       color: callColor(call, childActive),
@@ -147,7 +216,6 @@ export function liveExpandedLines(
         truncateToWidth(theme.fg(entry.color, entry.line), Math.max(1, width)),
       );
   }
-  const preview = thread.assistantPreview?.trim();
   if (preview) {
     const wrapped = preview
       .split("\n")

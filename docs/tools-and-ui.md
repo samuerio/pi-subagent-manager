@@ -44,11 +44,15 @@ child's final output as Markdown, and the child's session file path.
 While a foreground (`wait: true`) spawn is blocked, the result block streams live. The collapsed
 block puts the child's most recent tool call on its own muted line above the status line, which
 refreshes every second. Expanded (**Ctrl+O**) it mirrors the settled report's skeleton — a blank
-line, then a rolling window of the child's last tool calls (the running one highlighted, earlier
-ones collapsed into a `⋯ N earlier calls` counter, nested executions indented), then a preview of
-the child's latest assistant text when one exists, and the status line as the footer. A child with
-no output yet shows no placeholder. Once the child settles, the block switches once to the final
-report above. Detached (`wait: false`) spawns keep their single-shot result and never stream.
+line, then the task text (head-anchored, capped at 4 wrapped lines with an inline ` …` when
+clipped; blank paragraph lines do not spend the budget), a rule between the task and the body
+when any activity exists, then a rolling window of the child's last tool calls (the running one
+highlighted, earlier ones collapsed into a `⋯ N earlier calls` counter, nested executions
+indented, capped at 8 lines), then a preview of the child's latest assistant text when one
+exists, and the status line as the footer. A child with no calls yet still shows its brief. Once
+the child settles, the block switches once to the final report above, whose task is uncapped. The
+full untruncated task is also available in the transcript's tool-call args. Detached
+(`wait: false`) spawns keep their single-shot result and never stream.
 
 ### Reviewer targets
 
