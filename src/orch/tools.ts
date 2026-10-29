@@ -323,7 +323,7 @@ export function agentTools(
     ),
     threadTool(
       "agent_steer",
-      'Send input to a descendant and/or re-arm its report-only timeout. With message: working threads receive queued steering; completed, stopped and paused threads resume the SAME session with its previous context. With timeoutMs (30000–300000): the timeout fires that many ms from now, replacing any pending timer. To extend a running background agent\'s reporting timer without sending input, call agent_steer({path: "/root/task", timeoutMs: 120000}) and omit message entirely. This resets the timer to 120000 ms from now, not an addition to the old deadline. timeoutMs WITHOUT message only re-arms the timeout of a running child (error if not running) and does not steer, interrupt or resume it; with both, steer and re-arm. At least one is required. Returns immediately; use agent_wait for the result.',
+      'Send input to a descendant and/or re-arm its report-only timeout. With message: working threads receive queued steering; completed, stopped, paused and failed threads resume the SAME session with its previous context. With timeoutMs (30000–300000): the timeout fires that many ms from now, replacing any pending timer. To extend a running background agent\'s reporting timer without sending input, call agent_steer({path: "/root/task", timeoutMs: 120000}) and omit message entirely. This resets the timer to 120000 ms from now, not an addition to the old deadline. timeoutMs WITHOUT message only re-arms the timeout of a running child (error if not running) and does not steer, interrupt or resume it; with both, steer and re-arm. At least one is required. Returns immediately; use agent_wait for the result.',
       Type.Object({
         path,
         message: Type.Optional(
@@ -355,7 +355,7 @@ export function agentTools(
     ),
     threadTool(
       "agent_status",
-      "Read a thread's status, including bounded child extension diagnostics, or list visible descendants. Root can inspect all trees. Completion retains the session; pause retains it without final answer handback.",
+      "Read a thread's status, including bounded child extension diagnostics, or list visible descendants. Root can inspect all trees. Completion and failure retain the session; pause retains it without final answer handback.",
       Type.Object({ path: Type.Optional(path) }),
       (params) =>
         result(
