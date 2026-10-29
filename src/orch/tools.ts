@@ -258,11 +258,13 @@ export function agentTools(
     description: string,
     parameters: any,
     execute: Parameters<typeof make>[3],
+    renderOpts: { steerUi?: boolean } = {},
   ): ToolDefinition => ({
     ...make(name, description, parameters, execute),
     renderCall: (args: unknown, theme: Theme) =>
-      renderThreadCall(args, theme, name),
-    renderResult: renderThreadResult,
+      renderThreadCall(args, theme, name, renderOpts.steerUi === true),
+    renderResult: (result: unknown, options: unknown, theme: Theme, context?: unknown) =>
+      renderThreadResult(result, options, theme, context, renderOpts.steerUi === true),
   });
 
   const spawnTools = listAgentSpecs().map((spec) => {
@@ -352,6 +354,7 @@ export function agentTools(
             ),
           ),
         ),
+      { steerUi: true },
     ),
     threadTool(
       "agent_status",

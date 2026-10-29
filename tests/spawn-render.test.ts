@@ -94,7 +94,163 @@ test("a missing description or path renders placeholders instead of crashing", (
   );
 });
 
+test(
+  "the detached badge lives on the state line while the thread is active",
+  () => {
+    // The call line never carries the badge, not even for wait:false.
+    assert.doesNotMatch(
+      stripTerminalSequences(
+        rendered(
+          renderSpawnCall(
+            { path: "/root/task", wait: false, description: "Probe auth" },
+            theme,
+            "task_spawn",
+          ),
+        ),
+      ),
+      /\(detached\)/,
+    );
+    // Running detached spawns announce it right after the state word.
+    assert.equal(
+      spawnCollapsedText(thread({ state: "running" }), true),
+      "running (detached)  model pending  1s ↑1.2k ↓300 $0.0021",
+    );
+    // Foreground (wait:true/omitted) never badges, even mid-run.
+    assert.doesNotMatch(
+      spawnCollapsedText(thread({ state: "running" })),
+      /\(detached\)/,
+    );
+
+    // The renderer derives the flag from the call's own args (replay-safe):
+    // wait:false + an active state shows the badge, wait:false + settled and
+    // wait:true/omitted never do.
+    const args = { wait: false };
+    assert.doesNotMatch(
+      stripTerminalSequences(
+        rendered(
+          renderSpawnResult(callResult(thread({ state: "completed" })), {}, theme, { args }) as never,
+        ),
+      ),
+      /\(detached\)/,
+    );
+    assert.doesNotMatch(
+      stripTerminalSequences(
+        rendered(
+          renderSpawnResult(callResult(thread({ state: "running" })), {}, theme, {
+            args: { wait: true },
+          }) as never,
+        ),
+      ),
+      /\(detached\)/,
+    );
+    assert.doesNotMatch(
+      stripTerminalSequences(
+        rendered(
+          renderSpawnResult(callResult(thread({ state: "running" })), {}, theme, {
+            args: {},
+          }) as never,
+        ),
+      ),
+      /\(detached\)/,
+    );
+
+    assert.match(
+      stripTerminalSequences(
+        rendered(
+          renderSpawnResult(callResult(thread({ state: "running" })), {}, theme, {
+            args,
+          }) as never,
+        ),
+      ),
+      /\(detached\)/,
+    );
+
+    // Pin the badge on the surfaces the collapsed line does not cover:
+    // the expanded report and the starting state, through the renderer that
+    // threads the flag from the call args.
+    assert.match(
+      stripTerminalSequences(
+        rendered(
+          renderSpawnResult(
+            callResult(thread({ state: "running", output: "done." })),
+            { expanded: true },
+            theme,
+            { args },
+          ) as never,
+        ),
+      ),
+      /running \(detached\)/,
+    );
+    assert.match(
+      stripTerminalSequences(
+        rendered(
+          renderSpawnResult(callResult(thread({ state: "starting" })), {}, theme, {
+            args,
+          }) as never,
+        ),
+      ),
+      /starting \(detached\)/,
+    );
+  },
+);
+
+test("an explicit timeoutMs rides at the true tail of the spawn call line", () => {
+  const call = renderSpawnCall(
+    {
+      path: "/root/task",
+      description: "Probe auth headers",
+      timeoutMs: 120000,
+    },
+    theme,
+    "task_spawn",
+  );
+  const text = stripTerminalSequences(rendered(call));
+  assert.match(text, /\(timeout 120s\)/);
+  // True tail: nothing after the badge (rendered line is width-padded).
+  assert.equal(text.trimEnd().endsWith("(timeout 120s)"), true);
+  assert.doesNotMatch(text, /\(detached\)/);
+  assert.equal(
+    spawnCallText(
+      {
+        path: "/root/task",
+        description: "Probe auth headers",
+        timeoutMs: 120000,
+      },
+      "task_spawn",
+    ),
+    "task_spawn /root/task Probe auth headers (timeout 120s)",
+  );
+  assert.equal(
+    stripTerminalSequences(
+      rendered(
+        renderSpawnCall(
+          { path: "/root/task", description: "Probe auth headers", timeoutMs: 30500 },
+          theme,
+          "task_spawn",
+        ),
+      ),
+    ).trimEnd().endsWith("(timeout 30.5s)"),
+    true,
+  );
+
+  for (const bad of ["soon", null, undefined]) {
+    assert.doesNotMatch(
+      stripTerminalSequences(
+        rendered(
+          renderSpawnCall(
+            { path: "/root/task", description: "Probe auth headers", timeoutMs: bad },
+            theme,
+            "task_spawn",
+          ),
+        ),
+      ),
+      /\(timeout/,
+    );
+  }
+});
+
 // --- collapsed result -----------------------------------------------------------------------
+
 
 test("the collapsed line shows state, model and metrics, not the description", () => {
   const view = thread({
@@ -641,4 +797,28 @@ test("the live task budget skips blank paragraph lines", () => {
   assert.deepEqual(kept, ["one", "two", "three", "four …"]);
   // The blank separators never render, and the budget line carries the marker.
   assert.ok(!lines.includes("five"));
+});
+
+test("renderSpawnCall's fg never receives an empty span", () => {
+  // The identity-theme stub cannot see whether the guard holds (the empty
+  // span is invisible in its output), so record every fg call instead.
+  const calls: Array<[string, string]> = [];
+  const spy = {
+    fg: (token: string, text: string) => {
+      calls.push([token, text]);
+      return text;
+    },
+    bold: (text: string) => text,
+  } as unknown as Theme;
+  renderSpawnCall({ path: "/root/task", description: "Probe auth headers" }, spy, "task_spawn");
+  renderSpawnCall(
+    { path: "/root/task", description: "Probe auth headers", timeoutMs: 120000 },
+    spy,
+    "task_spawn",
+  );
+  assert.equal(calls.length > 0, true);
+  assert.equal(
+    calls.every(([, text]) => text.length > 0),
+    true,
+  );
 });

@@ -6,6 +6,7 @@ import {
   Text,
   truncateToWidth,
   wrapTextWithAnsi,
+  stripTerminalSequences,
   type Component,
 } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
@@ -20,7 +21,7 @@ import { sanitizeText, threadMetrics } from "./ui.ts";
  * in orch/tools.ts and is unaffected by these renderers.
  */
 
-type SpawnCallArgs = { path?: unknown; description?: unknown };
+type SpawnCallArgs = { path?: unknown; description?: unknown; wait?: unknown; timeoutMs?: unknown };
 
 function callDescription(args: unknown): string {
   const description = (args as SpawnCallArgs | undefined)?.description;
@@ -36,10 +37,20 @@ function callPath(args: unknown): string {
  * One-line call preview: agent name, its path handle (the key agent_wait and the
  * widget/tree use), then the short description. Result renderers stay path-free:
  * by then the description and metrics already identify the line.
+ * The call line carries no wait badge; detachedness is announced on the
+ * status line, next to the state word it modifies. An explicit timeoutMs, a
+ * request argument, rides at the tail of the line (pi's bash-tool style).
  */
 export function spawnCallText(args: SpawnCallArgs, name: string): string {
   const path = callPath(args);
-  return `${name}${path ? ` ${path}` : ""} ${callDescription(args)}`;
+  return `${name}${path ? ` ${path}` : ""} ${callDescription(args)}${callTimeoutPart(args)}`;
+}
+/** True-tail badge (pi's bash-tool style): " (timeout 120s)", "" when absent. */
+function callTimeoutPart(args: unknown): string {
+  const timeout = (args as SpawnCallArgs | undefined)?.timeoutMs;
+  return typeof timeout === "number" && Number.isFinite(timeout)
+    ? ` (timeout ${formatTimeoutSeconds(timeout)}s)`
+    : "";
 }
 
 export function renderSpawnCall(
@@ -50,26 +61,33 @@ export function renderSpawnCall(
   const path = callPath(args);
   const pathPart = path ? ` ${path}` : "";
   const description = callDescription(args);
+  // Guarded fg: an empty span would paste an empty ANSI run onto every line.
+  const timeoutText = callTimeoutPart(args);
   return new Text(
-    `${theme.fg("toolTitle", theme.bold(name))}${pathPart} ${theme.fg("muted", description)}`,
+    // Volatile template is fine: all three parts are non-empty or omitted.
+    `${theme.fg("toolTitle", theme.bold(name))}${pathPart} ${theme.fg("muted", description)}${timeoutText ? theme.fg("muted", timeoutText) : ""}`,
     0,
     0,
   );
 }
-
 /**
  * One-line collapsed result: state, model, metrics. The description stays on the
  * call line directly above, so repeating it here would be noise.
  */
-export function spawnCollapsedText(thread: ThreadView): string {
-  return `${thread.state}  ${modelLabel(thread)}  ${threadMetrics(thread)}`;
+export function spawnCollapsedText(
+  thread: ThreadView,
+  detached = false,
+): string {
+  return `${thread.state}${stateBadge(detached)}  ${modelLabel(thread)}  ${threadMetrics(thread)}`;
 }
 /**
  * Collapsed live block, activity first and status last (the same order as the
  * Agent widget rows and the settled report): the latest child call, then the
  * status line. No call yet means the status line alone.
  */
-export function liveCollapsedLines(thread: SpawnLiveDetails): string[] {
+export function liveCollapsedLines(
+  thread: SpawnLiveDetails,
+): string[] {
   const last = [...(thread.recentCalls ?? [])]
     .reverse()
     .find((call) => !call.nested);
@@ -79,11 +97,22 @@ export function liveCollapsedLines(thread: SpawnLiveDetails): string[] {
   return lines;
 }
 
-function statusLine(thread: ThreadView): string {
+function statusLine(thread: ThreadView, detached = false): string {
   const model = thread.model
     ? `${thread.model}${thread.thinkingLevel ? `:${thread.thinkingLevel}` : ""}`
     : "model pending";
-  return `${thread.state} · ${model} · ${threadMetrics(thread)}`;
+  return `${thread.state}${stateBadge(detached)} · ${model} · ${threadMetrics(thread)}`;
+}
+
+/**
+ * Detached spawns (wait:false) badge their state word only while the thread is
+ * actually live: the badge answers "why did this result arrive while the agent
+ * still works", a question settled states no longer raise. Text-only builders
+ * stay ANSI-free: callers wrap the whole line in theme.fg, and a nested inner
+ * reset would knock the rest of the line off its color.
+ */
+function stateBadge(detached: boolean): string {
+  return detached ? " (detached)" : "";
 }
 const MAX_LIVE_TRAIL_LINES = 8;
 const LIVE_PREVIEW_LINES = 4;
@@ -255,9 +284,17 @@ export function renderSpawnResult(
   // the settled state, whose report layout is the final render below.
   const partial =
     (options as { isPartial?: boolean } | undefined)?.isPartial === true;
+  // Detachedness comes from the same call args the call line showed, so the
+  // badge survives transcript replay; resume-flipped manager flags are never
+  // consulted (record.async also turns true on resume and would over-badge).
+  const detached =
+    isDetachedArgs((context as { args?: unknown } | undefined)?.args) &&
+    (thread.state === "starting" || thread.state === "running");
   if (partial && (thread.state === "starting" || thread.state === "running")) {
     if (!expanded)
       return new Text(
+        // Partial streaming is foreground-only (tools.ts single-shots detached
+        // spawns), so the live lines never carry the badge.
         theme.fg("muted", liveCollapsedLines(thread).join("\n")),
         0,
         0,
@@ -270,15 +307,21 @@ export function renderSpawnResult(
   }
 
   if (!expanded)
-    return new Text(theme.fg("muted", spawnCollapsedText(thread)), 0, 0);
-  return settledThreadView(thread, theme);
+    return new Text(
+      theme.fg("muted", spawnCollapsedText(thread, detached)),
+      0,
+      0,
+    );
+  return settledThreadView(thread, theme, detached);
 }
 
 /**
  * Settled expanded report: what was asked (task, muted), a full-width rule
  * separating instruction from answer, then the output, and finally the footer
- * (state, model, metrics) right above the session file. Shared by the spawn
- * verbs and the thread-management tools (agent_wait/steer/status/stop).
+ * (state, model, metrics) right above the session file. A grounded agent_steer
+ * report may carry a `steered:` note line between the footer and the session
+ * line. Shared by the spawn verbs and the thread-management tools
+ * (agent_wait/steer/status/stop).
  */
 export function settledThreadView(
   thread: ThreadView & {
@@ -286,6 +329,8 @@ export function settledThreadView(
     outputCharacters?: number;
   },
   theme: Theme,
+  detached = false,
+  note?: string,
 ): Container {
   const settled = thread.state !== "starting" && thread.state !== "running";
   const container = new Container();
@@ -326,7 +371,16 @@ export function settledThreadView(
     );
   }
   container.addChild(new Spacer(1));
-  container.addChild(new Text(theme.fg("muted", statusLine(thread)), 0, 0));
+  container.addChild(
+    new Text(theme.fg("muted", statusLine(thread, detached)), 0, 0),
+  );
+  // agent_steer's authored instruction, full text: a footer line, not the
+  // task header (the rule pairs the task with its output; a mid-life steer
+  // did not produce this output and must not claim the causal slot).
+  if (note) {
+    container.addChild(new Spacer(1));
+    container.addChild(new Text(theme.fg("muted", note), 0, 0));
+  }
   if (thread.sessionFile) {
     container.addChild(
       new Text(theme.fg("dim", `session: ${thread.sessionFile}`), 0, 0),
@@ -344,19 +398,58 @@ export function renderThreadCall(
   args: unknown,
   theme: Theme,
   name: string,
+  messagePreview = false,
 ): Text {
   const path = callPath(args);
-  const timeout = (args as { timeoutMs?: unknown } | undefined)?.timeoutMs;
-  const timeoutPart =
-    typeof timeout === "number" && Number.isFinite(timeout)
-      ? theme.fg("muted", ` (timeout ${formatTimeoutSeconds(timeout)}s)`)
-      : "";
+  // The thread tools share the spawn verbs' exact badge format (one
+  // callTimeoutPart for every call-line surface: no wording drift).
+  const timeoutText = callTimeoutPart(args);
+  const timeoutPart = timeoutText ? theme.fg("muted", timeoutText) : "";
   const range = callRange(args);
+  // agent_steer's message is the call's actionable core (the spawn
+  // description's role): capped single muted line before the tail badge.
+  const messageText = messagePreview ? callMessagePreview(args) : "";
+  const messagePart = messageText ? theme.fg("muted", messageText) : "";
   return new Text(
-    `${theme.fg("toolTitle", theme.bold(name))}${path ? ` ${path}` : ""}${range ? theme.fg("muted", range) : ""}${timeoutPart}`,
+    `${theme.fg("toolTitle", theme.bold(name))}${path ? ` ${path}` : ""}${range ? theme.fg("muted", range) : ""}${messagePart}${timeoutPart}`,
     0,
     0,
   );
+}
+
+/**
+ * agent_steer's full message as the expanded report's footnote line, "" when
+ * absent. Newlines are kept (the report is the full-text surface); control
+ * characters and terminal sequences are not.
+ */
+function steerNoteText(args: unknown): string {
+  const message = (args as { message?: unknown } | undefined)?.message;
+  if (typeof message !== "string") return "";
+  const body = stripTerminalSequences(message)
+    .replace(/[^\S\n]/g, " ")
+    .replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, " ")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim();
+  return body ? `steered: ${body}` : "";
+}
+
+const CALL_PREVIEW_COLUMNS = 60;
+/** agent_steer's capped call-line message preview: " <text>", "" when absent. */
+function callMessagePreview(args: unknown): string {
+  const message = (args as { message?: unknown } | undefined)?.message;
+  if (typeof message !== "string") return "";
+  const flat = sanitizeText(message).replace(/\s+/g, " ").trim();
+  if (!flat) return "";
+  // Column-based clipping: code-unit slicing can split a surrogate pair, and
+  // wide CJK/emoji columns would double the intended line budget.
+  const clipped = truncateToWidth(flat, CALL_PREVIEW_COLUMNS, "");
+  // truncateToWidth appends its own reset when it clips; strip it so the
+  // ellipsis stays inside the caller's fg span and the body stays within 60
+  // columns (total line = up to 60 columns + the ellipsis).
+  const bare = clipped === flat ? flat : stripTerminalSequences(clipped).trimEnd();
+  return bare === flat ? ` ${flat}` : ` ${bare}…`;
 }
 
 function formatTimeoutSeconds(timeoutMs: number): string {
@@ -403,6 +496,7 @@ export function renderThreadResult(
   options: unknown,
   theme: Theme,
   context?: unknown,
+  steerNote = false,
 ): Text | Container | Component {
   const content = (
     result as { content?: Array<{ type: string; text?: string }> }
@@ -474,7 +568,17 @@ export function renderThreadResult(
   if (!thread?.path || typeof thread.state !== "string") return fallback();
   if (!expanded)
     return new Text(theme.fg("muted", spawnCollapsedText(thread)), 0, 0);
-  return settledThreadView(thread, theme);
+  // agent_steer annotates the expanded report with its full authored message.
+  return settledThreadView(
+    thread,
+    theme,
+    false,
+    // The note rides the same opt-in switch as the call-line preview, so the
+    // annotation stays keyed to agent_steer, not to any message-shaped arg.
+    steerNote
+      ? steerNoteText((context as { args?: unknown } | undefined)?.args)
+      : undefined,
+  );
 }
 
 /**
@@ -496,4 +600,8 @@ function renderOutputPage(
     container.addChild(new Markdown(page.text, 0, 0, getMarkdownTheme()));
   else container.addChild(new Text(theme.fg("muted", "(empty page)"), 0, 0));
   return container;
+}
+
+function isDetachedArgs(args: unknown): boolean {
+  return (args as { wait?: unknown } | undefined)?.wait === false;
 }

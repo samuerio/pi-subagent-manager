@@ -8,6 +8,7 @@ import {
   renderThreadResult,
   settledThreadView,
 } from "../src/ui/spawn-render.ts";
+import { agentTools } from "../src/orch/tools.ts";
 
 initTheme();
 
@@ -257,6 +258,7 @@ test("agent_steer's re-armed report timer renders the same way", () => {
         { path: "/root/worker", timeoutMs: 30000 },
         theme,
         "agent_steer",
+        true,
       ) as { render: (width: number) => string[] }
     )
       .render(400)
@@ -323,3 +325,231 @@ test("the truncation line reports the payload length and points at agent_output"
     /output truncated at 16000 characters/,
   );
 });
+
+test(
+  "agent_steer's call line previews its message before the timeout badge",
+  () => {
+    const render = (args: unknown, messagePreview = true) =>
+      stripTerminalSequences(
+        (
+          renderThreadCall(args, theme, "agent_steer", messagePreview) as {
+            render: (width: number) => string[];
+          }
+        )
+          .render(400)
+          .join("\n"),
+      ).trim();
+
+    assert.equal(
+      render({ path: "/root/worker", message: "fix the flaky test" }),
+      "agent_steer /root/worker fix the flaky test",
+    );
+    // Order: body before badge; a message that imitates chrome cannot
+    // displace the real tail.
+    assert.equal(
+      render({ path: "/root/worker", message: "go", timeoutMs: 30000 }),
+      "agent_steer /root/worker go (timeout 30s)",
+    );
+    // >60 chars: clipped with a mandatory ellipsis.
+    const long = "x".repeat(120);
+    assert.equal(
+      render({ path: "/root/worker", message: long }),
+      `agent_steer /root/worker ${"x".repeat(60)}…`,
+    );
+    // Boundary: exactly 60 columns fits without an ellipsis…
+    assert.equal(
+      render({ path: "/root/worker", message: "x".repeat(60) }),
+      `agent_steer /root/worker ${"x".repeat(60)}`,
+    );
+    // …and one more column flips to the ellipsis.
+    assert.equal(
+      render({ path: "/root/worker", message: "x".repeat(61) }),
+      `agent_steer /root/worker ${"x".repeat(60)}…`,
+    );
+    // ANSI, newlines and control characters collapse to one muted line.
+    assert.equal(
+      render({ path: "/root/worker", message: "fix\nthe\x1b[31m  flaky\x02" }),
+      "agent_steer /root/worker fix the flaky",
+    );
+    // Wide characters: width-based clipping keeps CJK inside one line-budget
+    // (a code-unit slice would render 31 of them) and never splits neighbors.
+    assert.match(
+      render({ path: "/root/worker", message: "漢".repeat(40) }),
+      /^agent_steer \/root\/worker 漢{29,30}…$/,
+    );
+    assert.doesNotMatch(render({ path: "/root/worker", message: "漢".repeat(29) }), /…/);
+    // Whitespace-only message: no preview, and no trailing space.
+    assert.equal(
+      render({ path: "/root/worker", message: "   " }),
+      "agent_steer /root/worker",
+    );
+    // null (strict-schema omitted optional) renders nothing.
+    assert.equal(
+      render({ path: "/root/worker", message: null }),
+      "agent_steer /root/worker",
+    );
+    // Other thread tools ignore a stray message arg: preview is opt-in.
+    assert.equal(
+      stripTerminalSequences(
+        (
+          renderThreadCall(
+            { path: "/root/worker", message: "fix the flaky test" },
+            theme,
+            "agent_wait",
+          ) as { render: (width: number) => string[] }
+        )
+          .render(400)
+          .join("\n"),
+      ).trim(),
+      "agent_wait /root/worker",
+    );
+  },
+);
+
+test(
+  "agent_steer's expanded report carries the full message as a pinned footer note",
+  () => {
+    const report = (patch: Partial<ThreadView>, message: unknown, steerNote = true) =>
+      rendered(
+        renderThreadResult(
+          envelope(
+            thread({
+              output: "All tests pass.",
+              sessionFile: "/s/worker.jsonl",
+              ...patch,
+            }),
+          ),
+          { expanded: true },
+          theme,
+          { args: { path: "/root/worker", message } },
+          steerNote,
+        ) as { render: (width: number) => string[] },
+      );
+    const reportWith = (message: unknown) => report({}, message);
+    assert.match(reportWith("fix the flaky test"), /steered: fix the flaky test/);
+
+    // Pin the placement: after the status footer, before the session line.
+    const lines = report({}, "fix the flaky test").split("\n");
+    const statusIdx = lines.findIndex((line) => /completed ·/.test(line));
+    const noteIdx = lines.findIndex((line) => /steered: /.test(line));
+    const sessionIdx = lines.findIndex((line) => /session: \/s\/worker\.jsonl/.test(line));
+    assert.equal(statusIdx >= 0 && noteIdx >= 0 && sessionIdx >= 0, true);
+    assert.equal(statusIdx < noteIdx && noteIdx < sessionIdx, true);
+    // Exactly one blank separates the status footer from the note.
+    const statusToNote = lines.slice(statusIdx + 1, noteIdx);
+    assert.equal(statusToNote.some((line) => line.trim().length > 0), false);
+    assert.equal(statusToNote.length, 1);
+
+    // A multi-line message keeps its line structure in the note.
+    const multi = report({}, "fix the parser side\nthen rerun the suite");
+    assert.match(multi, /steered: fix the parser side/);
+    assert.match(multi, /^then rerun the suite.*$/m);
+
+    // null (strict-schema omitted optional) and whitespace-only stay silent.
+    assert.doesNotMatch(report({}, null), /steered:/);
+    assert.equal(report({}, "   ").includes("steered: "), false);
+
+    // Raw output check (bypasses any ANSI-stripping view helpers): the note
+    // surface must not leak terminal escape sequences into the terminal.
+    const raw = (
+      renderThreadResult(
+        envelope(thread({ output: "All tests pass." })),
+        { expanded: true },
+        theme,
+        { args: { path: "/root/worker", message: "fix\x1b[31m the\x1b[0m flaky\ncheck \x02 later" } },
+        true,
+      ) as { render: (width: number) => string[] }
+    )
+      .render(400)
+      .join("\n");
+    assert.match(raw, /steered: fix the flaky/);
+    assert.match(raw, /^check +later.*$/m);
+    assert.equal(/\x1b/.test(raw.slice(raw.indexOf("steered: "))), false);
+
+    // The note rides the steerUi opt-in; other verbs never gain it, and a
+    // replay without args renders the report bare.
+    assert.doesNotMatch(report({}, "fix the flaky test", false), /steered:/);
+    const bare = renderThreadResult(
+      envelope(thread({ output: "All tests pass.", sessionFile: "/s/worker.jsonl" })),
+      { expanded: true },
+      theme,
+    ) as { render: (width: number) => string[] };
+    assert.doesNotMatch(rendered(bare), /steered:/);
+    // Without a note the session line directly follows the status line: the
+    // guard deleting incident (an unconditional Spacer before it) stays seen.
+    const bareLines = rendered(bare).split("\n");
+    const bareStatusIdx = bareLines.findIndex((line) => /completed ·/.test(line));
+    const bareSessionIdx = bareLines.findIndex((line) => /session: \/s\/worker\.jsonl/.test(line));
+    assert.equal(bareStatusIdx >= 0 && bareSessionIdx >= 0, true);
+    assert.equal(bareSessionIdx - bareStatusIdx, 1);
+  },
+);
+
+test("the steerUi switch keys both affordances to agent_steer's registration", () => {
+  const tools = agentTools(() => null as never, "/root");
+  const call = (name: string, args: unknown) =>
+    stripTerminalSequences(
+      (
+        tools.find((tool) => tool.name === name)!.renderCall!(
+          args,
+          theme,
+          {} as never,
+        ) as { render: (width: number) => string[] }
+      )
+        .render(400)
+        .join("\n"),
+    ).trim();
+  // The registered steer tool carries the preview…
+  assert.equal(
+    call("agent_steer", { path: "/root/worker", message: "go" }),
+    "agent_steer /root/worker go",
+  );
+  // …and the same args on any other verb stay bare, so moving the switch
+  // away from the steer registration would fail here.
+  for (const name of ["agent_wait", "agent_stop", "agent_status"])
+    assert.equal(
+      call(name, { path: "/root/worker", message: "go" }),
+      `${name} /root/worker`,
+    );
+
+  // Both affordances ride one switch: the registered renderResult half too.
+  const expandReport = (name: string, args: unknown) =>
+    rendered(
+      tools.find((tool) => tool.name === name)!.renderResult!(
+        envelope(thread({ output: "All tests pass." })),
+        { expanded: true, isPartial: false },
+        theme,
+        { args } as never,
+      ) as { render: (width: number) => string[] },
+    );
+  assert.match(
+    expandReport("agent_steer", { path: "/root/worker", message: "go" }),
+    /steered: go/,
+  );
+  assert.doesNotMatch(
+    expandReport("agent_wait", { path: "/root/worker", message: "go" }),
+    /steered:/,
+  );
+});
+
+test(
+  "the clipped preview is stripped of the truncation reset before the ellipsis",
+  () => {
+    // truncateToWidth injects \x1b[0m when it clips — even with the identity
+    // theme, because the reset is emitted by the helper itself. The ellipsis
+    // must be appended after that reset is stripped, so the raw render must
+    // not carry any escape at all.
+    const raw = (
+      renderThreadCall(
+        { path: "/root/worker", message: "x".repeat(61), timeoutMs: 30000 },
+        theme,
+        "agent_steer",
+        true,
+      ) as { render: (width: number) => string[] }
+    )
+      .render(400)
+      .join("\n");
+    assert.equal(/\x1b/.test(raw), false);
+    assert.equal(raw.trimEnd().endsWith("(timeout 30s)"), true);
+  },
+);

@@ -37,9 +37,13 @@ opening them.
 Then `agent_wait` or `agent_status` on `/root/controller-security-research`. The model and thinking
 level come from the `modes.json` pin for that agent's role; see [settings](settings.md#model-routing-roles-in-modesjson).
 
-Spawn calls render compactly: the call line shows the agent name plus the `description`; the result
+Spawn calls render compactly: the call line shows the agent name plus the `description`, with an
+explicit `timeoutMs` appended as a muted `(timeout 120s)` tail badge in bash-tool style; the result
 collapses to one line (state, model, elapsed time, tokens, cost) and expands to a status line, the
-child's final output as Markdown, and the child's session file path.
+child's final output as Markdown, and the child's session file path. A detached (`wait: false`)
+spawn marks its state word with a `(detached)` badge while the thread is still live; a settled run
+drops it. `agent_steer` shows its message twice: a 60-column preview (ellipsis when clipped) on
+the call line, and the full text as a muted `steered: …` footer in the expanded report.
 
 While a foreground (`wait: true`) spawn is blocked, the result block streams live. The collapsed
 block puts the child's most recent tool call on its own muted line above the status line, which
