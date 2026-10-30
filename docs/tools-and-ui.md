@@ -10,6 +10,7 @@ Use [commands](#commands) to manage agents yourself, or let the main agent use t
 | `finder_spawn`    | Start a `finder` child (code search).                                      |
 | `oracle_spawn`    | Start an `oracle` child (reasoning advisor).                               |
 | `librarian_spawn` | Start a `librarian` child (external repositories).                         |
+| `simplifier_spawn` | Start a `simplifier` child (in-place polish). Give the task a `TARGET:` first line. |
 | `reviewer_spawn`  | Start a `reviewer` child. Give the task a `TARGET:` first line.            |
 | `agent_wait`      | Wait for settlement; optional `timeoutMs`                                  |
 | `agent_steer`     | Send `{path, message?, timeoutMs?}`; queues/resumes and/or re-arms timeout |
@@ -69,13 +70,31 @@ itself, so the caller never has to gather it:
 | `TARGET: branch:main`          | This branch against a base branch, using its merge base   |
 | `TARGET: commit:abc1234`       | One commit                                                |
 | `TARGET: pr:123`               | A GitHub pull request through `gh pr diff`                |
-| `TARGET: paths:src/orch,docs/` | Snapshot of those files or directories, no diff           |
+
+### Simplifier targets
+
+`simplifier_spawn` reads what to polish from the first line of `task`. The simplifier resolves the
+scope itself and edits in place, so its target vocabulary is narrower than the reviewer's:
+
+| First line                     | Polishes                                                  |
+| ------------------------------ | --------------------------------------------------------- |
+| `TARGET: working-tree`         | Uncommitted changes: staged, unstaged and untracked files |
+| `TARGET: branch:main`          | What this branch touched against a base, current checkout only |
+| `TARGET: paths:src/orch,docs/` | Those files or directories as they stand                  |
+
+No `TARGET: commit:` and no `TARGET: pr:` exist for the simplifier: a pull request would need a
+checkout it does not have, and an unusable descriptor makes it pause and ask rather than fall back
+to the default. Lines after the descriptor are extra instructions. It runs one pass, may create
+files only as move-extractions from existing ones, never mutates git state, and reports every edit
+with a reason, the verification commands it ran before and after, and zero edits as a valid outcome.
+See [built-in agents](default-agents.md#the-six-agents) for the rubric behind it.
 
 Lines after the descriptor are extra instructions. The reviewer stays read-only, keeps its whole
 report in its final message, and opens that message with `Verdict: correct` or
 `Verdict: needs attention`. With no descriptor it infers a target and says which one it inferred;
-when two targets stay plausible it pauses and asks rather than guessing. See
-[built-in agents](default-agents.md#the-five-agents) for the rubric behind it.
+when two targets stay plausible it pauses and asks rather than guessing.
+See [built-in agents](default-agents.md#the-six-agents) for the rubric behind it.
+See [built-in agents](default-agents.md#the-six-agents) for the rubric behind it.
 
 Child progress and completion notifications are retained in the main agent's context without adding visible chat messages. When a detached (`wait: false`) agent completes, fails or is stopped, the main agent receives a message event that starts a new turn if it is idle (or right after its current turn settles), so it never has to poll. Progress updates and foreground results do not start a turn. The opt-in **[labs] Final Recap** setting changes this: completion messages for async agents are recorded without waking the main agent, and once **all outstanding async agents have reported**, one recap turn summarizes them. Enabling it uses more tokens and context. Use the Agents widget, `/agents tree`, or `agent_output` to inspect child status and answers. With the opt-in **[labs] Housekeeping model**, `/agents tree` shows a model-written one-line summary of each running agent's current work in place of its raw tool-call line (see [settings](settings.md#labs-housekeeping-model-housekeepingenabled-housekeepingmodel)).
 
@@ -99,7 +118,7 @@ A spawn tool accepts an optional `timeoutMs` (30000–300000, i.e. 30s–5min; o
 | `/agents reload`               | Reload settings; show diagnostics.                                   |
 | `/agents reap`                 | Confirm removal of eligible completed agents from the retained tree. |
 
-Both `fork:` and `fresh:` autocomplete every built-in agent (`task`, `finder`, `oracle`, `librarian`, `reviewer`) and start detached agents: you can keep working in the main conversation while they run.
+Both `fork:` and `fresh:` autocomplete every built-in agent (`task`, `finder`, `oracle`, `librarian`, `simplifier`, `reviewer`) and start detached agents: you can keep working in the main conversation while they run.
 
 `reap` shows how many agents are eligible before asking you to confirm. It frees retained-thread slots but preserves active parents and ancestors of retained threads. Reaped agents cannot be resumed; their session files are not deleted.
 

@@ -42,6 +42,7 @@ export const AGENT_SPEC_NAMES = [
   "finder",
   "oracle",
   "librarian",
+  "simplifier",
   "reviewer",
 ] as const;
 export type AgentSpecName = (typeof AGENT_SPEC_NAMES)[number];

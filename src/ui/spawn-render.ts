@@ -16,7 +16,7 @@ import { modelLabel } from "./thread-tree.ts";
 import { sanitizeText, threadMetrics } from "./ui.ts";
 
 /**
- * Shared display layer for the five spawn verbs. Everything here is pure
+ * Shared display layer for the spawn verbs. Everything here is pure
  * presentation: the model-facing content (the ThreadView envelope) is produced
  * in orch/tools.ts and is unaffected by these renderers.
  */

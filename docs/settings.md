@@ -187,7 +187,7 @@ disables subagent tree navigation, and renames this command to `/mode:1`/`/mode:
 | Role        | Serves                                                            |
 | ----------- | ----------------------------------------------------------------- |
 | `oracle`    | `oracle_spawn`                                                    |
-| `subagents` | `task_spawn`, `finder_spawn`, `librarian_spawn`, `reviewer_spawn` |
+| `subagents` | `task_spawn`, `finder_spawn`, `librarian_spawn`, `simplifier_spawn`, `reviewer_spawn` |
 
 ```json
 {

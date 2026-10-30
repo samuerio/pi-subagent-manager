@@ -1,6 +1,6 @@
 # Built-in agents
 
-Five agents ship with the extension. They are code, not files: each one is an entry in
+Six agents ship with the extension. They are code, not files: each one is an entry in
 [`src/agents/specs.ts`](../src/agents/specs.ts) with a name, tool description, system prompt, tool
 allowlist, skills, color, icon, and model role. Adding an agent means adding an entry there; the
 spawn tool, prompt guidance, `/agents` completion, and the widget badge all derive from that table.
@@ -8,7 +8,7 @@ spawn tool, prompt guidance, `/agents` completion, and the widget badge all deri
 Retained threads keep the definition they were saved with, so changing a spec never rewrites an
 existing agent's history.
 
-## The five agents
+## The six agents
 
 | Agent       | Spawn tool        | Role        | Tool allowlist                                                               |
 | ----------- | ----------------- | ----------- | ---------------------------------------------------------------------------- |
@@ -16,6 +16,7 @@ existing agent's history.
 | `finder`    | `finder_spawn`    | `subagents` | read, bash, grep, find, ls, progress/pause                                   |
 | `oracle`    | `oracle_spawn`    | `oracle`    | read, bash, grep, find, ls, progress/pause                                   |
 | `librarian` | `librarian_spawn` | `subagents` | read, bash, grep, find, ls, progress/pause, plus its `librarian` skill       |
+| `simplifier` | `simplifier_spawn` | `subagents` | read, write, edit, bash, grep, find, ls, progress/pause                      |
 | `reviewer`  | `reviewer_spawn`  | `subagents` | read, bash, grep, find, ls, progress/pause                                   |
 
 - **`task`** does the work: implementation, refactoring, debugging, and any bounded job. It is the only
@@ -26,6 +27,11 @@ existing agent's history.
   edit files and does not search on its own (spawn a `finder` for that).
 - **`librarian`** understands repositories outside the workspace, locally or by cloning through its
   skill's `checkout.sh`.
+- **`simplifier`** polishes a change in place: behavior stays exact, clarity and consistency improve,
+  and conventions come from `AGENTS.md`. Its task's first line is a `TARGET:` descriptor
+  (`working-tree`, `branch:main`, `paths:a,b`); it runs a single pass, reports every edit with a
+  reason plus the commands it ran, and treats zero edits as a valid outcome. It may write files but
+  never mutates git state; new files are only move-extractions from existing ones.
 - **`reviewer`** reviews a change against a fixed rubric and returns prioritized findings with a
   verdict. It resolves the diff itself: the task's first line is a `TARGET:` descriptor
   (`working-tree`, `branch:main`, `commit:<sha>`, `pr:<n>`, `paths:a,b`), and the prompt tells it to
@@ -42,7 +48,7 @@ role's provider, model, and thinking level:
 | Role        | Serves                                                            |
 | ----------- | ----------------------------------------------------------------- |
 | `oracle`    | `oracle_spawn`                                                    |
-| `subagents` | `task_spawn`, `finder_spawn`, `librarian_spawn`, `reviewer_spawn` |
+| `subagents` | `task_spawn`, `finder_spawn`, `librarian_spawn`, `simplifier_spawn`, `reviewer_spawn` |
 
 A missing pin is a hard error that names the file and the missing field. See
 [settings](settings.md#model-routing-roles-in-modesjson) for the shape, path precedence, and behavior
@@ -73,20 +79,23 @@ by default and requires a Nerd Font in your terminal. Each spec carries a litera
 | `finder`    | `nf-fa-search`        | `U+F002`  |
 | `oracle`    | `nf-md-floor_plan`    | `U+F0821` |
 | `librarian` | `nf-fa-pencil`        | `U+F040`  |
+| `simplifier` | `nf-fa-magic`         | `U+F0D0`  |
 | `reviewer`  | `nf-fa-check`         | `U+F00C`  |
 
 Codepoints were checked against the
 [official Nerd Fonts glyph mapping](https://raw.githubusercontent.com/ryanoasis/nerd-fonts/master/glyphnames.json).
-Roles may share a glyph if you edit the table; the shipped five are distinct.
+Roles may share a glyph if you edit the table; the shipped six are distinct.
 
 ## Why these agents
 
 The roster is deliberately small: one worker, one searcher, one advisor, one reader of foreign
-repositories, and one reviewer. `task` covers the implementation work that used to be split across
-several roles, and `oracle` is the only agent on the advisor role, so a strong reasoning model can be
-budgeted for it alone. `reviewer` shares the worker role because reviewing is a diff-shaped task, not
-a reasoning budget problem; move it to `oracle` in `src/agents/specs.ts` if you want a stronger model
-to review.
+repositories, one editor, and one reviewer. `task` covers the implementation work that used to be
+split across several roles, and `oracle` is the only agent on the advisor role, so a strong reasoning
+model can be budgeted for it alone. `reviewer` shares the worker role because reviewing is a
+diff-shaped task, not a reasoning budget problem; move it to `oracle` in `src/agents/specs.ts` if
+you want a stronger model to review. `simplifier` is the writable counterpart of `reviewer`: whoever
+implements (the parent or a `task` child) can hand its result in for polish, then back to
+`reviewer` to judge.
 
 The reviewer's rubric is a copy of the author's standalone review extension, which in turn adapts
 Codex's review prompt. There is no shared code between the two, so the copy in

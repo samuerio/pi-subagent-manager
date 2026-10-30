@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { REVIEW_RUBRIC } from "./reviewer/rubric.ts";
+import { SIMPLIFIER_SYSTEM_PROMPT } from "./simplifier/rubric.ts";
 import { AGENT_SPEC_NAMES, type AgentSpec, type AgentSpecName } from "../types.ts";
 
 /**
@@ -339,9 +340,18 @@ Lines after the descriptor are extra instructions, for example "TARGET: working-
 
 /** Shared read-only search surface for the advisory and lookup agents. */
 const READ_ONLY_TOOLS = [...REPORT_TOOLS, "read", "bash", "grep", "find", "ls"];
+export const SIMPLIFIER_DESCRIPTION = `Simplifies and refines code for clarity, consistency, and maintainability while preserving all functionality.
+
+Spawns an editor that polishes recently changed code in place. Unlike the read-only reviewer_spawn it edits the working tree, so a pending review diff is stale after a run.
+It resolves its own target from git state; you do not gather diffs first. Begin the task with a \`TARGET:\` line naming what to polish:
+- \`TARGET: working-tree\` for uncommitted changes (default when the line is omitted)
+- \`TARGET: branch:main\` for what this branch touched against a base
+- \`TARGET: paths:src/orch,docs/\` for these files or directories as they stand
+
+Extra lines after the descriptor are caller instructions. Behavior-changing work is not for it; bug fixes, features and larger refactors stay in task_spawn or your own hands. Judge the polished result with reviewer_spawn afterwards.`;
 
 /**
- * The five built-in agents, in registration order. Adding an agent means adding
+ * The six built-in agents, in registration order. Adding an agent means adding
  * an entry here plus its description; the spawn tool, prompt guidance, `/agents`
  * completions and the model role all derive from this list.
  */
@@ -396,6 +406,16 @@ export const AGENT_SPECS: readonly AgentSpec[] = [
     icon: "\u{f040}",
     tools: [...READ_ONLY_TOOLS],
     skills: [LIBRARIAN_SKILL_DIR],
+  },
+  {
+    name: "simplifier",
+    description: SIMPLIFIER_DESCRIPTION,
+    systemPrompt: SIMPLIFIER_SYSTEM_PROMPT,
+    role: "subagents",
+    color: "syntaxKeyword",
+    icon: "\u{f0d0}",
+    tools: [...READ_ONLY_TOOLS, "edit", "write"],
+    skills: [],
   },
   {
     name: "reviewer",
