@@ -488,6 +488,7 @@ export async function showThreads(
       const children = controller.list().filter((child) => child.parent === selectedPath);
       const title = `${sanitizeText(thread.path)} [${sanitizeText(thread.state)}] ${sanitizeText(thread.status)}`;
       const action = await ctx.ui.select(title, [
+        "View task",
         "View output",
         "View transcript",
         "Send input / resume",
@@ -509,6 +510,12 @@ export async function showThreads(
         await ctx.ui.editor(
           `${sanitizeText(selectedPath)} — READ ONLY (changes discarded)`,
           text.split("\n").map(sanitizeText).join("\n"),
+        );
+      } else if (action === "View task") {
+        // Read-only like the View actions above, so a long prompt stays legible in full.
+        await ctx.ui.editor(
+          `${sanitizeText(selectedPath)} — TASK — READ ONLY (changes discarded)`,
+          thread.task.split("\n").map(sanitizeText).join("\n"),
         );
       } else if (action === "Send input / resume") {
         const message = await ctx.ui.editor("Send input / resume retained session", "");

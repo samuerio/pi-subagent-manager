@@ -120,12 +120,13 @@ const LIVE_PREVIEW_LINES = 4;
 const LIVE_TASK_LINES = 4;
 
 /**
- * Wrapped muted task lines for the live expanded view: head-anchored (reading
- * order = the start, unlike the tail-anchored trail/preview), clipped with an
- * inline " …" on the last kept line when the task exceeds max. The 2-column
- * reserve keeps the marker from being eaten by the outer truncateToWidth.
+ * Wrapped muted task lines, head-anchored (reading order = the start, unlike the
+ * tail-anchored trail/preview), clipped with an inline " …" on the last kept line
+ * when the task exceeds max. The 2-column reserve keeps the marker from being
+ * eaten by the outer truncateToWidth. Shared with the Agents tree detail area
+ * (status-ui.ts) so both surfaces render a task identically.
  */
-function taskLines(
+export function taskLines(
   task: string,
   width: number,
   theme: Theme,

@@ -24,6 +24,7 @@ import {
   dialogText,
   frameDialog,
 } from "./dialog.ts";
+import { taskLines } from "./spawn-render.ts";
 import type { ThreadService } from "../types.ts";
 import type { LoaderStyle } from "../prefs/settings.ts";
 import { buildStatusTree, modelLabel, type StatusRow } from "./thread-tree.ts";
@@ -346,14 +347,26 @@ export class StatusDialog {
     return [first, second];
   }
 
-  private detail(row: StatusRow | undefined): string[] {
+  /**
+   * The selected agent's task, wrapped by the shared taskLines() renderer so it
+   * reads as it does in the live widget. maxDetail counts the metrics line too,
+   * so overflow leaves a " …" that the Actions menu's "View task" can resolve.
+   */
+  private detail(row: StatusRow | undefined, width: number, maxDetail: number): string[] {
     if (!row?.thread) {
       return [
         ` ${row?.path === ROOT ? (agentCount(this.service.list()) ? "Main Pi session" : "Main Pi session — No agents yet") : "Missing parent"}`,
         "",
       ];
     }
-    return [` task ${dialogText(row.thread.task)}`, ` ${threadMetrics(row.thread)}`];
+    const indent = "      "; // continuation lines align under the " task " label
+    const textWidth = Math.max(1, width - 2 - indent.length);
+    const lines = taskLines(row.thread.task ?? "", textWidth, this.theme, maxDetail - 1);
+    return [
+      ` task ${lines[0] ?? ""}`,
+      ...lines.slice(1).map((line) => indent + line),
+      ` ${threadMetrics(row.thread)}`,
+    ];
   }
 
   render(width: number): string[] {
@@ -364,10 +377,14 @@ export class StatusDialog {
       : dialogHeight(this.host);
     const index = this.locate(rows);
     if (rows[index]) this.selectedPath = rows[index].path;
-    const budget = Math.max(0, height - 4);
-    const detail = budget > 2 ? this.detail(rows[index]) : [];
-    const treeCount = Math.max(0, Math.floor((budget - detail.length) / 2));
-    this.viewport = Math.max(1, treeCount);
+   const budget = Math.max(0, height - 4);
+   // Detail (task block + metrics line) grows with the prompt but never past
+   // what still leaves 3 tree rows (6 lines) visible; otherwise arrows move a
+   // selection the tree no longer shows.
+   const maxDetail = Math.max(0, budget - 6);
+   const detail = maxDetail >= 2 ? this.detail(rows[index], width, maxDetail) : [];
+   const treeCount = Math.max(0, Math.floor((budget - detail.length) / 2));
+   this.viewport = Math.max(1, treeCount);
     const start = treeCount
       ? Math.max(0, Math.min(index - treeCount + 1, Math.max(0, rows.length - treeCount)))
       : 0;

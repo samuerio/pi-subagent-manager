@@ -24,6 +24,10 @@ import {
   AgentNavigationController,
 } from "../src/ui/status-ui.ts";
 import { AGENT_PROGRESS_INTERVAL } from "../src/ui/agent-loader.ts";
+import {
+  showThreads,
+  type ThreadController,
+} from "../src/ui/ui.ts";
 import { LiveAgentView } from "../src/ui/live-agent-view.ts";
 import { createDialogDriver } from "./helpers/dialogDriver.ts";
 import type { ThreadService, ThreadView } from "../src/types.ts";
@@ -945,6 +949,7 @@ test("i Actions retains existing operations in the same overlay and saves folds 
       actions++;
       assert.match(menu.title, /\/root\/a/);
       assert.deepEqual(labels, [
+        "View task",
         "View output",
         "View transcript",
         "Send input / resume",
@@ -1113,4 +1118,68 @@ test("Ctrl+C in the tree stops every live agent once via its top-most live ances
   dialog.handleInput("\x03");
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(stopped.sort(), ["/root/a", "/root/d"]);
+});
+
+test("detail area wraps the full task, marks overflow, and keeps the tree row visible", () => {
+  const task =
+    "task TARGET: pi/agent/extensions/background-task.ts " +
+    "Simplify this file in place. ".repeat(200);
+  const dialog = new StatusDialog(
+    host(20, () => {}),
+    theme,
+    service(() => [thread("/root/a", { parent: "/root", task })]),
+    () => {},
+    "/root/a",
+  );
+  const lines = dialog.render(100).map((line) => plain([line]));
+  const agentRow = lines.findIndex((line) => line.includes("/root/a"));
+  const taskRow = lines.findIndex((line) => line.includes("task TARGET"));
+  assert.ok(agentRow > 0 && taskRow > agentRow, "tree rows above, task detail below");
+  // Continuation lines indent under the " task " label, not under the row gutter.
+  assert.match(lines[taskRow + 1]!, /^│ {6}\S/);
+  // Clipping keeps the shared " …" marker on an indented line, never mid-gutter.
+  const markerRow = lines.findIndex((line) => line.includes("…"));
+  assert.ok(markerRow > taskRow, "overflow is marked below the task head");
+  assert.match(lines[markerRow]!, /^│ {6}\S/);
+  // The metrics line survives the growth: the cap counts it, not the task alone.
+  assert.match(lines.slice(taskRow).join("\n"), /0s ↑0 ↓0/);
+});
+
+test("Actions View task opens the read-only editor with the full task text", async () => {
+  const threads = [
+    thread("/root/a", {
+      parent: "/root",
+      task: "task TARGET: file.ts\nSecond \x1b[31mline\x00",
+    }),
+  ];
+  const editors: Array<{ title: string; text: string }> = [];
+  const controller = {
+    list: () => threads,
+    get: (path: string) => threads.find((item) => item.path === path)!,
+  } as unknown as ThreadController;
+  let menus = 0;
+  const ctx = uiContext({
+    select: async (_title: string, options: string[]) => {
+      menus++;
+      assert.deepEqual(options, [
+        "View task",
+        "View output",
+        "View transcript",
+        "Send input / resume",
+        "Stop",
+        "Back",
+      ]);
+      // showThreads reopens the menu after each action; pass 2 exits.
+      return menus === 1 ? "View task" : undefined;
+    },
+    editor: async (title: string, prefill: string) => {
+      editors.push({ title, text: prefill });
+      return prefill;
+    },
+  });
+  await showThreads(ctx, controller, "/root/a");
+  assert.equal(editors.length, 1, "exactly one editor opened");
+  assert.match(editors[0]!.title, /— TASK — READ ONLY \(changes discarded\)/);
+  // The full multi-line task survives the split / sanitize / join round trip.
+  assert.equal(editors[0]!.text, "task TARGET: file.ts\nSecond line ");
 });
