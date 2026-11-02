@@ -1243,3 +1243,25 @@ test("onStart fires synchronously with the canonical view before a blocking wait
   assert.equal(view.path, "/root/worker");
   await manager.shutdown();
 });
+
+test("non-root callers may spawn only their immediate children", async () => {
+  const { manager } = fixture();
+  await manager.spawn("/root", { path: "/a", type: "worker", task: "parent", wait: false });
+  await tick();
+  await manager.spawn("/a", { path: "b", type: "worker", task: "immediate child", wait: false });
+  await tick();
+  await assert.rejects(
+    manager.spawn("/a", {
+      path: "b/c",
+      type: "worker",
+      task: "nested beyond immediate children",
+    }),
+    /immediate children/,
+  );
+  // /root may nest under an existing thread when a non-root caller cannot.
+  await manager.spawn("/root", { path: "k", type: "worker", task: "intermediate", wait: false });
+  await tick();
+  await manager.spawn("/root", { path: "/root/k/leaf", type: "worker", task: "root nests", wait: false });
+  await tick();
+  await manager.shutdown();
+});

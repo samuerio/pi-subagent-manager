@@ -194,7 +194,7 @@ async function runForeground(
 const SpawnParams = Type.Object({
   path: Type.String({
     description:
-      "Task-based kebab-case path. An absolute single-segment path /<name> (e.g. /review-auth) from the main thread starts a fresh independent root with no inherited context; /root/<name> or a bare relative name forks the caller's conversation.",
+      "Task-based kebab-case path. An absolute single-segment /<name> (e.g. /review-auth) from the main thread starts a fresh independent root with no inherited context; a relative name or /root/<name> forks the lexical parent's conversation (from /root, a nested path forks the intermediate thread's snapshot).",
   }),
   description: Type.String({
     description:
@@ -219,7 +219,7 @@ const SpawnParams = Type.Object({
 function spawnDescription(spec: AgentSpec, toolName: string): string {
   return `${spec.description}
 
-Spawns a \`${spec.name}\` child. The lexical parent, NOT the caller, supplies a context snapshot: /root/<name> or a relative name forks that conversation, while an absolute single-segment /<name> from the main thread starts a fresh independent root with no inherited context (only the main thread can spawn those; an agent may address only its descendants). Foreground waits by default; wait:false runs detached, and when it completes, fails or is stopped you receive a message event that wakes you, so do not poll. Optional timeoutMs (30000–300000): if the child is still running after that many ms you receive an event with its status, elapsed, tokens and recent output; the child is NOT stopped. For parallel work, spawn every independent sibling with wait:false before calling agent_wait. Existing paths are retained; resume them with agent_steer rather than ${toolName}.`;
+Spawns a \`${spec.name}\` child. The child inherits its lexical parent's conversation at spawn time: a relative name resolves under the caller, a non-root caller may spawn only its immediate children, and only /root may nest /root/<name> under an existing thread, where the intermediate thread supplies the snapshot. An absolute single-segment /<name> from the main thread starts a fresh independent root with no inherited context. Foreground waits by default; wait:false runs detached, and on completion, failure or stop you get a message event, so do not poll. Optional timeoutMs (30000–300000) reports a status event if the child is still running; it is not stopped. For parallel work, spawn all independent siblings with wait:false before agent_wait. Existing paths are retained; resume them with agent_steer rather than ${toolName}.`;
 }
 
 /**

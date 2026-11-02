@@ -89,7 +89,8 @@ files only as move-extractions from existing ones, never mutates git state, and 
 with a reason, the verification commands it ran before and after, and zero edits as a valid outcome.
 See [built-in agents](default-agents.md#the-six-agents) for the rubric behind it.
 
-Lines after the descriptor are extra instructions. The reviewer stays read-only, keeps its whole
+Lines after the descriptor are extra instructions. The reviewer stays read-only by instruction
+(the allowlist still carries bash, so read-only is prompt-enforced), keeps its whole
 report in its final message, and opens that message with `Verdict: correct` or
 `Verdict: needs attention`. With no descriptor it infers a target and says which one it inferred;
 when two targets stay plausible it pauses and asks rather than guessing.

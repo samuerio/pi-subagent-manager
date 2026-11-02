@@ -43,7 +43,7 @@ For any coding task that involves thoroughly searching or understanding the code
 
 export const TASK_DESCRIPTION = `Perform a task (a sub-task of the user's overall task) using a sub-agent that has access to: read, write, edit, bash, grep, find, ls, finder_spawn.
 
-Use it when the work is parallelizable, long-running, very large, or benefits from an isolated context.`;
+Use it when the work is parallelizable, long-running, or very large.`;
 
 const FINDER_SYSTEM_PROMPT = `You are a fast, parallel code search agent.
 
@@ -105,9 +105,9 @@ export const FINDER_DESCRIPTION = `Intelligently search your codebase: Use it fo
 
 const ORACLE_SYSTEM_PROMPT = `You are the Oracle - an expert AI advisor with advanced reasoning capabilities.
 
-Your role is to provide high-quality technical guidance, code reviews, architectural advice, and strategic planning for software engineering tasks.
+Your role is to provide high-quality technical guidance, architecture and design advice, strategic planning, and deep diagnostics for software engineering tasks.
 
-You are a subagent inside an AI coding system, called when the main agent needs a smarter, more capable model. You are invoked in a zero-shot manner, where no one can ask you follow-up questions, or provide you with follow-up answers.
+You are a subagent inside an AI coding system, called when the main agent needs a smarter, more capable model. Only your last message is handed back to the caller, so deliver a complete, self-contained answer without assuming mid-run clarification.
 
 Key responsibilities:
 - Analyze code and architecture patterns
@@ -144,7 +144,7 @@ Response format (keep it concise and action-oriented):
 
 Guidelines:
 - Use your reasoning to provide thoughtful, well-structured, and pragmatic advice.
-- When reviewing code, examine it thoroughly but report only the most important, actionable issues.
+- When advising on code, examine it thoroughly and surface only the most important, actionable issues.
 - For planning tasks, break down into minimal steps that achieve the goal incrementally.
 - Justify recommendations briefly; avoid long speculative exploration unless explicitly requested.
 - Consider alternatives and trade-offs, but limit them per the simplicity-first principles above.
@@ -152,13 +152,13 @@ Guidelines:
 
 IMPORTANT: Only your last message is returned to the main agent and displayed to the user. Your last message should be comprehensive yet focused, with a clear, simple recommendation that helps the user act immediately.`;
 
-export const ORACLE_DESCRIPTION = `Consult the Oracle - an AI advisor powered by a strong reasoning model that can plan, review, and provide expert guidance.
+export const ORACLE_DESCRIPTION = `Consult the Oracle - an AI advisor powered by a strong reasoning model that can advise, plan, and diagnose.
 
 The Oracle acts as your senior engineering advisor and can help with:
 
 **WHEN TO USE THE ORACLE:**
 
-* Design and architecture feedback not tied to a concrete diff (diff-tied code reviews belong to reviewer_spawn)
+* Design and architecture advice on a proposed approach, before there is a change to review (a findings-based review of a change belongs to reviewer_spawn)
 * Diagnosing a bug whose cause you cannot localize
 * Planning complex implementations or refactoring
 * Analyzing code quality and suggesting improvements
@@ -168,12 +168,12 @@ The Oracle acts as your senior engineering advisor and can help with:
 
 * Simple file reading or searching tasks (use Read or grep directly)
 * Codebase searches (use finder_spawn)
-* Reviews of a concrete diff (use reviewer_spawn)
+* Findings-based reviews of a change, whether a diff or a snapshot (use reviewer_spawn)
 * Basic code modifications and when you need to execute code changes (do it yourself or use task_spawn)
 
 **USAGE GUIDELINES:**
 
-1. Be specific about what you want the Oracle to review, plan, or debug
+1. Be specific about what you want the Oracle to advise on, plan, or diagnose
 2. Provide relevant context about what you're trying to achieve. If you know that 3 files are involved, list their paths so the Oracle knows what to read.`;
 
 const LIBRARIAN_SYSTEM_PROMPT = `You are the Librarian, a specialized codebase understanding agent that helps users answer questions about large, complex codebases across repositories.
@@ -328,20 +328,20 @@ const REVIEWER_SYSTEM_PROMPT = `${REVIEW_RUBRIC}\n\n---\n\n${REVIEW_PROCEDURE}`;
 
 export const REVIEWER_DESCRIPTION = `Review a code change and report prioritized, actionable findings with a verdict.
 
-Spawns a read-only reviewer that resolves the diff itself, so you do not need to gather it first. Begin the task with a \`TARGET:\` line naming what to review:
+Spawns a reviewer that resolves the target itself; you never gather the diff first. Begin the task with a \`TARGET:\` line naming what to review:
 - \`TARGET: working-tree\` for uncommitted changes, staged, unstaged and untracked
 - \`TARGET: branch:main\` for this branch against a base branch
 - \`TARGET: commit:abc1234\` for one commit
 - \`TARGET: pr:123\` for a GitHub pull request
 - \`TARGET: paths:src/orch,docs/\` for a snapshot review with no diff
 
-Lines after the descriptor are extra instructions, for example "TARGET: working-tree\\nFocus on the new spawn parameter handling." Findings carry [P0]-[P3] tags and the final message opens with a verdict, so read it instead of steering. Use this to review a change; use oracle_spawn for design questions that are not tied to a diff, and task_spawn when the review also needs fixes.`;
+Lines after the descriptor are extra instructions, e.g. "TARGET: working-tree\\nFocus on the new spawn parameter handling." Findings carry [P0]-[P3] tags and the final message opens with a verdict, so read it instead of steering. Use this for a findings-based review of a change (diff or snapshot); oracle_spawn for design and planning questions; task_spawn when fixes are also needed.`;
 
-/** Shared read-only search surface for the advisory and lookup agents. */
+/** Shared search surface for the advisory and lookup agents (read-only behavior is prompt-enforced for reviewer/librarian, not allowlist-enforced). */
 const READ_ONLY_TOOLS = [...REPORT_TOOLS, "read", "bash", "grep", "find", "ls"];
 export const SIMPLIFIER_DESCRIPTION = `Simplifies and refines code for clarity, consistency, and maintainability while preserving all functionality.
 
-Spawns an editor that polishes recently changed code in place. Unlike the read-only reviewer_spawn it edits the working tree, so a pending review diff is stale after a run.
+Spawns an editor that polishes recent changes in place; unlike reviewer_spawn it edits the working tree, so a pending review diff is stale after a run.
 It resolves its own target from git state; you do not gather diffs first. Begin the task with a \`TARGET:\` line naming what to polish:
 - \`TARGET: working-tree\` for uncommitted changes (default when the line is omitted)
 - \`TARGET: branch:main\` for what this branch touched against a base

@@ -23,8 +23,10 @@ existing agent's history.
   agent that can delegate, because only its allowlist contains the spawn verbs and the control tools.
 - **`finder`** searches. It returns file paths with line ranges instead of essays, and is designed for
   many parallel calls and a handful of turns.
-- **`oracle`** advises. Reviews, plans, architecture calls, and hard reasoning questions. It does not
-  edit files and does not search on its own (spawn a `finder` for that).
+- **`oracle`** advises on design and architecture, plans implementations, and takes on hard
+  reasoning and diagnosis questions. Findings-based reviews of a change (diff or snapshot) belong
+  to `reviewer_spawn`; `oracle` does not edit files and does not search on its own (spawn a
+  `finder` for that).
 - **`librarian`** understands repositories outside the workspace, locally or by cloning through its
   skill's `checkout.sh`.
 - **`simplifier`** polishes a change in place: behavior stays exact, clarity and consistency improve,
