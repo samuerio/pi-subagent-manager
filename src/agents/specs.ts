@@ -249,11 +249,11 @@ Linking:
 Example:
 file:///home/alice/.cache/checkouts/github.com/foo_org/bar_repo/src/test.py#L32-L42`;
 
-export const LIBRARIAN_DESCRIPTION = `The Librarian is a codebase-understanding subagent for repositories outside the local workspace.
+export const LIBRARIAN_DESCRIPTION = `The Librarian is a codebase-understanding subagent for repositories **other than the current project** (the working directory's codebase), whether a local checkout elsewhere on disk or a remote repository.
 
-It can read git repositories in two ways: an existing local checkout or a remote repository (any git repository your git credentials can access: GitHub, GitLab, Bitbucket, or plain URLs).
+It can read git repositories in two ways: an existing local checkout (pass its absolute path) or a remote repository (any git repository your git credentials can access: GitHub, GitLab, Bitbucket, or plain URLs).
 
-Use this when you need deep understanding of existing code across one or more repositories:
+Use this when you need deep understanding of existing code outside the current project, across one or more repositories:
 - explaining architecture, flows, or subsystem design
 - finding where a feature is implemented in an external codebase
 - comparing patterns across repositories
@@ -261,25 +261,23 @@ Use this when you need deep understanding of existing code across one or more re
 - reading or diffing files in a remote repository
 
 Do not use this for:
-- local workspace reads or searches (use finder_spawn or direct tools)
+- reads or searches of the current project's workspace (use finder_spawn or direct tools)
 - code modifications or implementations (use task_spawn)
-- simple local lookups when a direct local tool is enough
 - questions unrelated to understanding existing repositories
 
 Guidance:
 - name the repository or project when you know it
 - ask a specific question or describe the feature or codepath you want understood
 - include context about what you are trying to achieve
-- for a repository already checked out locally, pass its absolute path so it reads that copy instead of re-cloning
-- expect a thorough answer suitable for sharing
-- return the answer in full rather than summarizing it
+- for a repository already checked out locally outside the current project, pass its absolute path so it reads that copy instead of re-cloning
+- expect a thorough answer suitable for sharing, returned in full rather than summarized
 
 Examples:
 - "How does authentication work in the Kubernetes codebase?"
 - "Explain the architecture of the React rendering system"
 - "Compare how different web frameworks handle routing"
 - "What changed in commit abc123 in my private repository?"
-- "Read the README from the main API repo"`;
+- "Read the README from the API repo's checkout at /home/alice/api"`;
 
 /** Where to review, how to resolve each diff, and the reply contract for the reviewer. */
 const REVIEW_PROCEDURE = `# Review Procedure
