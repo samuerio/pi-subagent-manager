@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { REVIEW_RUBRIC } from "./reviewer/rubric.ts";
 import { SIMPLIFIER_SYSTEM_PROMPT } from "./simplifier/rubric.ts";
-import { AGENT_SPEC_NAMES, type AgentSpec, type AgentSpecName } from "../types.ts";
+import { type AgentSpec, type AgentSpecName } from "../types.ts";
 
 /**
  * Built-in agent specs. This file is the single source of truth for what a
@@ -158,8 +158,8 @@ The Oracle acts as your senior engineering advisor and can help with:
 
 **WHEN TO USE THE ORACLE:**
 
-* Code reviews and architecture feedback
-* Finding a bug in multiple files
+* Design and architecture feedback not tied to a concrete diff (diff-tied code reviews belong to reviewer_spawn)
+* Diagnosing a bug whose cause you cannot localize
 * Planning complex implementations or refactoring
 * Analyzing code quality and suggesting improvements
 * Answering complex technical questions that require deep reasoning
@@ -168,12 +168,13 @@ The Oracle acts as your senior engineering advisor and can help with:
 
 * Simple file reading or searching tasks (use Read or grep directly)
 * Codebase searches (use finder_spawn)
+* Reviews of a concrete diff (use reviewer_spawn)
 * Basic code modifications and when you need to execute code changes (do it yourself or use task_spawn)
 
 **USAGE GUIDELINES:**
 
 1. Be specific about what you want the Oracle to review, plan, or debug
-2. Provide relevant context about what you're trying to achieve. If you know that 3 files are involved, list them and they will be attached.`;
+2. Provide relevant context about what you're trying to achieve. If you know that 3 files are involved, list their paths so the Oracle knows what to read.`;
 
 const LIBRARIAN_SYSTEM_PROMPT = `You are the Librarian, a specialized codebase understanding agent that helps users answer questions about large, complex codebases across repositories.
 
@@ -364,7 +365,7 @@ export const AGENT_SPECS: readonly AgentSpec[] = [
     tools: [
       ...REPORT_TOOLS,
       ...CONTROL_TOOLS,
-      ...AGENT_SPEC_NAMES.map((name) => `${name}_spawn`),
+      "finder_spawn",
       "read",
       "write",
       "edit",
