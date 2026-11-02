@@ -41,6 +41,10 @@ import { LiveAgentView, fillViewport, type AgentViewportState } from "./live-age
 export { buildStatusTree, type StatusRow };
 
 const ROOT = "/root";
+/** Detail budget that is always reserved for tree rows: 3 agents × 2 lines. */
+const TREE_RESERVE = 6;
+/** Detail block cap: 1 blank separator + up to 5 task preview lines. */
+const PREVIEW_CAP = 6;
 const INACTIVE_STATES = new Set(["paused", "stopped", "failed", "completed"]);
 const TITLE = "Agents status";
 const TREE_TITLE = "Agents tree";
@@ -272,7 +276,9 @@ export class StatusDialog {
     const thread = row.thread;
     if (!thread) {
       const text = `${head}${label(row)}`;
-      return [selected ? this.theme.fg("accent", text) : text, ""];
+      // One line only: a second, always-blank grid line would stack on the
+      // detail separator whenever this row ends the tree.
+      return [selected ? this.theme.fg("accent", text) : text];
     }
     const inactive = INACTIVE_STATES.has(thread.state);
     const base = thread.state === "completed" ? "dim" : "muted";
@@ -347,26 +353,25 @@ export class StatusDialog {
     return [first, second];
   }
 
+  /** Status text for a row that has no thread behind it. */
+  private placeholderText(row: StatusRow | undefined): string {
+    if (row?.path !== ROOT) return "Missing parent";
+    return agentCount(this.service.list()) ? "Main Pi session" : "Main Pi session — No agents yet";
+  }
+
   /**
    * The selected agent's task, wrapped by the shared taskLines() renderer so it
-   * reads as it does in the live widget. maxDetail counts the metrics line too,
-   * so overflow leaves a " …" that the Actions menu's "View task" can resolve.
+   * reads as it does in the live widget. The leading blank row separates the
+   * preview from the tree, so the task text gets maxDetail - 1 rows. Head only:
+   * metrics already live on the tree row's right edge, so they are not repeated
+   * here.
    */
   private detail(row: StatusRow | undefined, width: number, maxDetail: number): string[] {
-    if (!row?.thread) {
-      return [
-        ` ${row?.path === ROOT ? (agentCount(this.service.list()) ? "Main Pi session" : "Main Pi session — No agents yet") : "Missing parent"}`,
-        "",
-      ];
-    }
-    const indent = "      "; // continuation lines align under the " task " label
+    const indent = "  "; // continuation lines align under the head row's text
+    if (!row?.thread) return ["", indent + this.placeholderText(row)];
     const textWidth = Math.max(1, width - 2 - indent.length);
     const lines = taskLines(row.thread.task ?? "", textWidth, this.theme, maxDetail - 1);
-    return [
-      ` task ${lines[0] ?? ""}`,
-      ...lines.slice(1).map((line) => indent + line),
-      ` ${threadMetrics(row.thread)}`,
-    ];
+    return ["", `${indent}${lines[0] ?? ""}`, ...lines.slice(1).map((line) => indent + line)];
   }
 
   render(width: number): string[] {
@@ -377,14 +382,15 @@ export class StatusDialog {
       : dialogHeight(this.host);
     const index = this.locate(rows);
     if (rows[index]) this.selectedPath = rows[index].path;
-   const budget = Math.max(0, height - 4);
-   // Detail (task block + metrics line) grows with the prompt but never past
-   // what still leaves 3 tree rows (6 lines) visible; otherwise arrows move a
-   // selection the tree no longer shows.
-   const maxDetail = Math.max(0, budget - 6);
-   const detail = maxDetail >= 2 ? this.detail(rows[index], width, maxDetail) : [];
-   const treeCount = Math.max(0, Math.floor((budget - detail.length) / 2));
-   this.viewport = Math.max(1, treeCount);
+    const budget = Math.max(0, height - 4);
+    // Detail (blank separator + task preview) is capped at PREVIEW_CAP lines so a
+    // long task cannot starve the tree window that still has to show the
+    // selection; the trailing " …" resolves via "View task". TREE_RESERVE keeps
+    // the floor of 3 visible agent rows, so it must stay >= PREVIEW_CAP.
+    const maxDetail = Math.min(Math.max(0, budget - TREE_RESERVE), PREVIEW_CAP);
+    const detail = maxDetail >= 2 ? this.detail(rows[index], width, maxDetail) : [];
+    const treeCount = Math.max(0, Math.floor((budget - detail.length) / 2));
+    this.viewport = Math.max(1, treeCount);
     const start = treeCount
       ? Math.max(0, Math.min(index - treeCount + 1, Math.max(0, rows.length - treeCount)))
       : 0;

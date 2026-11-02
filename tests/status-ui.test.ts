@@ -24,10 +24,7 @@ import {
   AgentNavigationController,
 } from "../src/ui/status-ui.ts";
 import { AGENT_PROGRESS_INTERVAL } from "../src/ui/agent-loader.ts";
-import {
-  showThreads,
-  type ThreadController,
-} from "../src/ui/ui.ts";
+import { showThreads, type ThreadController } from "../src/ui/ui.ts";
 import { LiveAgentView } from "../src/ui/live-agent-view.ts";
 import { createDialogDriver } from "./helpers/dialogDriver.ts";
 import type { ThreadService, ThreadView } from "../src/types.ts";
@@ -1135,14 +1132,62 @@ test("detail area wraps the full task, marks overflow, and keeps the tree row vi
   const agentRow = lines.findIndex((line) => line.includes("/root/a"));
   const taskRow = lines.findIndex((line) => line.includes("task TARGET"));
   assert.ok(agentRow > 0 && taskRow > agentRow, "tree rows above, task detail below");
-  // Continuation lines indent under the " task " label, not under the row gutter.
-  assert.match(lines[taskRow + 1]!, /^│ {6}\S/);
+  assert.equal(
+    agentRow,
+    2,
+    "/root renders as a single line; a second grid line would stack blanks on the separator",
+  );
+  // Preview is head-only: a blank separator sits above it, continuation lines
+  // align under the preview's first text column.
+  assert.match(lines[taskRow - 1]!, /^│\s+│$/);
+  assert.match(lines[taskRow + 1]!, /^│ {2}\S/);
   // Clipping keeps the shared " …" marker on an indented line, never mid-gutter.
   const markerRow = lines.findIndex((line) => line.includes("…"));
   assert.ok(markerRow > taskRow, "overflow is marked below the task head");
-  assert.match(lines[markerRow]!, /^│ {6}\S/);
-  // The metrics line survives the growth: the cap counts it, not the task alone.
-  assert.match(lines.slice(taskRow).join("\n"), /0s ↑0 ↓0/);
+  assert.match(lines[markerRow]!, /^│ {2}\S/);
+  // Metrics stay on the tree row's right edge and are never repeated below.
+  assert.ok(!lines.slice(taskRow).join("\n").includes("↑0 ↓0"), "metrics not repeated below");
+});
+
+test("capped preview keeps every tree row on screen despite a long task", () => {
+  const task = "task TARGET: long.log " + "Filler. ".repeat(300);
+  const threads = [1, 2, 3, 4, 5, 6].map((n) => thread(`/root/a${n}`, n === 6 ? { task } : {}));
+  const dialog = new StatusDialog(
+    host(30, () => {}),
+    theme,
+    service(() => threads),
+    () => {},
+    "/root/a6",
+  );
+  const lines = dialog.render(100).map((line) => plain([line]));
+  // Without the flat cap the detail block would page the tree down to 3 rows and
+  // hide the oldest agents; with it, all seven rows (/root + a1..a6) share the
+  // 27-row body budget of a 30-row host with the 6-line detail block.
+  for (const { path } of threads) {
+    assert.ok(
+      lines.some((line) => line.includes(path)),
+      `${path} stays visible under the preview cap`,
+    );
+  }
+  // PREVIEW_CAP pins the detail block even on a tall host: the task text never
+  // grows past 5 lines (separator blank + cap - 1), so an uncapped formula
+  // would fail here by rendering dozens of detail rows.
+  const tall = new StatusDialog(
+    host(60, () => {}),
+    theme,
+    service(() => threads),
+    () => {},
+    "/root/a6",
+  );
+  const tallLines = tall.render(100).map((line) => plain([line]));
+  const previewHead = tallLines.findIndex((line) => line.includes("Filler."));
+  assert.ok(previewHead > 0, "long task preview present on a tall host");
+  let previewText = 1;
+  for (let i = previewHead + 1; i < tallLines.length; i++) {
+    if (/^│\s+│$/.test(tallLines[i]!)) break;
+    previewText++;
+  }
+  assert.ok(previewText <= 5, `preview text capped at 5 lines, saw ${previewText}`);
 });
 
 test("Actions View task opens the read-only editor with the full task text", async () => {
