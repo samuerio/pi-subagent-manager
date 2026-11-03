@@ -29,12 +29,22 @@ test("the reviewer sits last in the shipped roster", () => {
 test("the reviewer reuses the worker role and display tokens", () => {
   assert.equal(reviewer.role, "subagents");
   assert.deepEqual(reviewer.skills, []);
-  assert.ok(AGENT_COLORS.includes(reviewer.color as (typeof AGENT_COLORS)[number]));
+  assert.ok(
+    AGENT_COLORS.includes(reviewer.color as (typeof AGENT_COLORS)[number]),
+  );
   assert.match(reviewer.icon ?? "", /^\p{Co}$/u);
 });
 
 test("the reviewer may read and report but never write or delegate", () => {
-  for (const tool of ["read", "bash", "grep", "find", "ls", "agent_update", "agent_pause"])
+  for (const tool of [
+    "read",
+    "bash",
+    "grep",
+    "find",
+    "ls",
+    "agent_update",
+    "agent_pause",
+  ])
     assert.ok(reviewer.tools.includes(tool), tool);
   for (const tool of [
     "write",
@@ -47,29 +57,55 @@ test("the reviewer may read and report but never write or delegate", () => {
   ])
     assert.equal(reviewer.tools.includes(tool), false, tool);
   for (const spec of AGENT_SPECS)
-    assert.equal(reviewer.tools.includes(spawnToolName(spec.name)), false, spec.name);
+    assert.equal(
+      reviewer.tools.includes(spawnToolName(spec.name)),
+      false,
+      spec.name,
+    );
   // Only the worker keeps a delegation surface, and only the finder verb.
   assert.ok(getAgentSpec("task").tools.includes("finder_spawn"));
   assert.equal(getAgentSpec("task").tools.includes("reviewer_spawn"), false);
   assert.ok(spawnTools.some((tool) => tool.name === "reviewer_spawn"));
 });
 
-test("reviewer_spawn keeps the shared spawn parameter set", () => {
-  const tool = spawnTools.find((candidate) => candidate.name === "reviewer_spawn");
+test("reviewer_spawn swaps task for typed target params", () => {
+  const tool = spawnTools.find(
+    (candidate) => candidate.name === "reviewer_spawn",
+  );
   assert.ok(tool);
-  assert.deepEqual(Object.keys((tool.parameters as any).properties).sort(), [
+  const properties = (tool.parameters as any).properties;
+  assert.deepEqual(Object.keys(properties).sort(), [
     "description",
     "path",
-    "task",
+    "target",
+    "targetRef",
     "timeoutMs",
     "wait",
   ]);
-  assert.match(tool.description, /TARGET: working-tree/);
-  assert.match(tool.description, /TARGET: pr:123/);
+  // Not name-branched in tools.ts: the seam lives on the spec.
+  assert.ok(reviewer.parameters);
+  assert.ok(reviewer.composeTask);
+  assert.equal("task" in properties, false);
+  for (const target of ["working-tree", "branch", "commit", "paths"])
+    assert.match(JSON.stringify(properties.target), new RegExp(target));
+  assert.match(tool.description, /target: working-tree/);
+  assert.match(tool.description, /targetRef: abc1234/);
+  // The old prose channel is gone: no extra-instructions invitation either.
+  assert.doesNotMatch(
+    tool.description,
+    /Lines after the descriptor|extra instructions/,
+  );
   assert.doesNotMatch(tool.description, /not supported|refuse|use \/review/i);
   // The rubric belongs to the child prompt only; per-turn tool descriptions stay small.
   assert.doesNotMatch(tool.description, /Review Guidelines/);
   assert.ok(tool.description.length < 1800, String(tool.description.length));
+});
+
+test("the reviewer prompt drops the unreachable descriptor-repair branch", () => {
+  const prompt = reviewer.systemPrompt;
+  assert.match(prompt, /first line is always a `TARGET:`/);
+  assert.doesNotMatch(prompt, /extra instructions from the caller/);
+  assert.doesNotMatch(prompt, /descriptor is missing or unreadable/);
 });
 
 test("the reviewer prompt carries the rubric plus the procedure", () => {
@@ -104,15 +140,25 @@ test("the procedure resolves diffs without inventing them", () => {
     "git diff HEAD",
     "git ls-files --others --exclude-standard",
     "git status --porcelain",
-    "git rev-parse --verify",
-    "git merge-base --all",
+    "git rev-parse --abbrev-ref",
+    "git merge-base HEAD",
     "git show --stat",
-    "gh pr diff",
   ])
     assert.ok(prompt.includes(command), command);
   // Two-dot diffing against a base branch silently includes commits the base added.
-  assert.match(prompt, /Never use `git diff <base>`/);
-  assert.match(prompt, /no merge base/);
+  assert.match(prompt, /never use `git diff <base>`/);
+  // The four-step merge-base recipe replaced the fallback chain.
+  assert.match(prompt, /agent_pause` and ask for the correct base/);
+  assert.match(prompt, /agent_pause` and ask for the correct base/);
+  // The fallback runs against a possibly-stale local base; disclosed, not hidden.
+  assert.match(
+    prompt,
+    /can be stale; if it has no upstream and may be stale, say so in the report/,
+  );
+  // pr is not a kind any more, and the old fallback/origin chain is gone.
+  assert.doesNotMatch(prompt, /gh pr diff/);
+  assert.doesNotMatch(prompt, /merge-base --all/);
+  assert.doesNotMatch(prompt, /origin\/<base>/);
   // Listing untracked paths is not reviewing them.
   assert.match(prompt, /git diff --no-index \/dev\/null/);
   assert.match(prompt, /Do not run `git add -N`/);

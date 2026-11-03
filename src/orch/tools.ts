@@ -11,7 +11,11 @@ import type {
   TranscriptObservation,
   TranscriptSnapshot,
 } from "../types.ts";
-import { OUTPUT_PAGE_CHARS, OUTPUT_PREVIEW_CHARS } from "../types.ts";
+import {
+  OUTPUT_PAGE_CHARS,
+  OUTPUT_PREVIEW_CHARS,
+  SPAWN_BASE_FIELDS,
+} from "../types.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import {
@@ -192,24 +196,8 @@ async function runForeground(
  * excluded.
  */
 const SpawnParams = Type.Object({
-  path: Type.String({
-    description:
-      "Task-based kebab-case path. An absolute single-segment /<name> (e.g. /review-auth) from the main thread starts a fresh independent root with no inherited context; a relative name or /root/<name> forks the lexical parent's conversation (from /root, a nested path forks the intermediate thread's snapshot).",
-  }),
-  description: Type.String({
-    description:
-      "A very short description of the task that can be displayed to the user.",
-  }),
+  ...SPAWN_BASE_FIELDS,
   task: text,
-  wait: Type.Optional(Type.Boolean()),
-  timeoutMs: Type.Optional(
-    Type.Integer({
-      minimum: 30000,
-      maximum: 300000,
-      description:
-        "Optional report-only timeout, 30000–300000 ms (30s–5min). If the child is still running after this many ms, a status event is sent to you; the child keeps running.",
-    }),
-  ),
 });
 
 /**
@@ -263,8 +251,19 @@ export function agentTools(
     ...make(name, description, parameters, execute),
     renderCall: (args: unknown, theme: Theme) =>
       renderThreadCall(args, theme, name, renderOpts.steerUi === true),
-    renderResult: (result: unknown, options: unknown, theme: Theme, context?: unknown) =>
-      renderThreadResult(result, options, theme, context, renderOpts.steerUi === true),
+    renderResult: (
+      result: unknown,
+      options: unknown,
+      theme: Theme,
+      context?: unknown,
+    ) =>
+      renderThreadResult(
+        result,
+        options,
+        theme,
+        context,
+        renderOpts.steerUi === true,
+      ),
   });
 
   const spawnTools = listAgentSpecs().map((spec) => {
@@ -273,9 +272,13 @@ export function agentTools(
       ...make(
         toolName,
         spawnDescription(spec, toolName),
-        SpawnParams,
+        spec.parameters ?? SpawnParams,
         async (params, signal, onUpdate) => {
           const service = threads();
+          // A spec may own typed input: its composeTask renders the child's
+          // first message from the params, leaving the caller no prose channel
+          // from which the child could inherit claims or stale diffs.
+          const task = spec.composeTask?.(params) ?? params.task;
           // Detached spawns keep their single-shot result; foreground spawns stream live.
           if (params.wait === false || !onUpdate)
             return result(
@@ -284,7 +287,7 @@ export function agentTools(
                   {
                     path: params.path,
                     type: spec.name,
-                    task: params.task,
+                    task,
                     ...(params.description !== undefined
                       ? { description: params.description }
                       : {}),
@@ -298,7 +301,13 @@ export function agentTools(
               ),
             );
           return result(
-            await runForeground(service, params, spec.name, signal, onUpdate),
+            await runForeground(
+              service,
+              { ...params, task },
+              spec.name,
+              signal,
+              onUpdate,
+            ),
           );
         },
       ),

@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { type TSchema, Type } from "typebox";
 
 export const THINKING_LEVELS = [
   "off",
@@ -34,6 +35,30 @@ export function truncationNote(
 ): string {
   return `output truncated at ${outputCharacters ?? OUTPUT_PREVIEW_CHARS} characters · agent_output ${path} for the rest`;
 }
+/**
+ * The four parameter fields every spawn verb shares (path, description, wait,
+ * timeoutMs), defined once so the per-spec parameter sets under src/agents/
+ * reuse the generic spawn wording verbatim instead of drifting.
+ */
+export const SPAWN_BASE_FIELDS = {
+  path: Type.String({
+    description:
+      "Task-based kebab-case path. An absolute single-segment /<name> (e.g. /review-auth) from the main thread starts a fresh independent root with no inherited context; a relative name or /root/<name> forks the lexical parent's conversation (from /root, a nested path forks the intermediate thread's snapshot).",
+  }),
+  description: Type.String({
+    description:
+      "A very short description of the task that can be displayed to the user.",
+  }),
+  wait: Type.Optional(Type.Boolean()),
+  timeoutMs: Type.Optional(
+    Type.Integer({
+      minimum: 30000,
+      maximum: 300000,
+      description:
+        "Optional report-only timeout, 30000–300000 ms (30s–5min). If the child is still running after this many ms, a status event is sent to you; the child keeps running.",
+    }),
+  ),
+};
 /** Model routing role pinned in modes.json: the advisor or the general worker pool. */
 export const AGENT_ROLES = ["oracle", "subagents"] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
@@ -67,6 +92,17 @@ export interface AgentSpec {
   /** Absolute skill directory allowlist for the child process. */
   skills: string[];
   role: AgentRole;
+  /**
+   * Per-spec spawn parameter schema; when present it replaces the shared
+   * SpawnParams for this spec's spawn tool. Specs that own typed input pair it
+   * with `composeTask`.
+   */
+  parameters?: TSchema;
+  /**
+   * Renders the child's first task message from typed params (pairs with
+   * `parameters`), instead of passing the caller's prose through unchanged.
+   */
+  composeTask?: (params: { target: string; targetRef?: string }) => string;
   /** Pi semantic token for the type pill background and task path foreground. */
   color?: string;
   /** Optional literal Nerd Font glyph; displayed only when the labs setting is enabled. */

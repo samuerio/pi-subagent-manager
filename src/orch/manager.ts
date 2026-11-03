@@ -420,7 +420,13 @@ export class ThreadManager {
     )
       throw new Error("Total thread limit reached");
     this.assertCapacity();
-    const type = structuredClone(this.options.getType(args.type));
+    // Spawn-tool-only metadata (`parameters`, `composeTask`) cannot cross a
+    // structuredClone, and tools.ts already ran `composeTask`, so detach the
+    // type record without them.
+    const { parameters, composeTask, ...spawnable } = this.options.getType(
+      args.type,
+    );
+    const type = structuredClone(spawnable);
     // Stamp the role pin at spawn so an async spawn reports its real model
     // immediately; later usage events stay authoritative.
     const routing = this.options.roleModel?.(type.role);

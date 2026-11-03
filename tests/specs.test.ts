@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AGENT_SPECS, getAgentSpec, listAgentSpecs, spawnToolName } from "../src/agents/specs.ts";
+import {
+  AGENT_SPECS,
+  getAgentSpec,
+  listAgentSpecs,
+  spawnToolName,
+} from "../src/agents/specs.ts";
 import { AGENT_SPEC_NAMES, AGENT_ROLES } from "../src/types.ts";
 import { agentTools } from "../src/orch/tools.ts";
 
 test("the built-in roster is exactly the six documented agents", () => {
-
   assert.deepEqual(
     AGENT_SPECS.map((spec) => spec.name),
     [...AGENT_SPEC_NAMES],
@@ -38,14 +42,23 @@ test("only the worker may delegate", () => {
       "agent_output",
       "agent_stop",
     ]) {
-      assert.equal(spec.tools.includes(control), spec.name === "task", `${spec.name}: ${control}`);
+      assert.equal(
+        spec.tools.includes(control),
+        spec.name === "task",
+        `${spec.name}: ${control}`,
+      );
     }
   }
 });
 
 test("no agent carries a model; routing is a role name", () => {
   for (const spec of AGENT_SPECS) {
-    for (const field of ["model", "models", "thinkingLevel", "modelSuggestions"]) {
+    for (const field of [
+      "model",
+      "models",
+      "thinkingLevel",
+      "modelSuggestions",
+    ]) {
       assert.equal(Object.hasOwn(spec, field), false, `${spec.name}: ${field}`);
     }
   }
@@ -72,13 +85,23 @@ test("each agent registers one spawn tool with no type parameter", () => {
   );
   for (const tool of spawnTools) {
     const properties = (tool.parameters as any).properties;
-    assert.deepEqual(Object.keys(properties).sort(), [
-      "description",
-      "path",
-      "task",
-      "timeoutMs",
-      "wait",
-    ]);
+    if (tool.name === "reviewer_spawn" || tool.name === "simplifier_spawn")
+      assert.deepEqual(Object.keys(properties).sort(), [
+        "description",
+        "path",
+        "target",
+        "targetRef",
+        "timeoutMs",
+        "wait",
+      ]);
+    else
+      assert.deepEqual(Object.keys(properties).sort(), [
+        "description",
+        "path",
+        "task",
+        "timeoutMs",
+        "wait",
+      ]);
     assert.equal("type" in properties, false, tool.name);
     assert.ok(tool.description.length > 100, tool.name);
     assert.equal(tool.name.startsWith("agent_"), false);

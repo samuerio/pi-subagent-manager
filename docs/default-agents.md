@@ -30,14 +30,14 @@ existing agent's history.
 - **`librarian`** understands repositories outside the workspace, locally or by cloning through its
   skill's `checkout.sh`.
 - **`simplifier`** polishes a change in place: behavior stays exact, clarity and consistency improve,
-  and conventions come from `AGENTS.md`. Its task's first line is a `TARGET:` descriptor
-  (`working-tree`, `branch:main`, `paths:a,b`); it runs a single pass, reports every edit with a
-  reason plus the commands it ran, and treats zero edits as a valid outcome. It may write files but
-  never mutates git state; new files are only move-extractions from existing ones.
+  and conventions come from `AGENTS.md`. It takes a typed `target` (`working-tree`, `branch`,
+  `paths`) plus `targetRef`; it runs a single pass, reports every edit with a reason plus the
+  commands it ran, and treats zero edits as a valid outcome. It may write files but never mutates
+  git state; new files are only move-extractions from existing ones.
 - **`reviewer`** reviews a change against a fixed rubric and returns prioritized findings with a
-  verdict. It resolves the diff itself: the task's first line is a `TARGET:` descriptor
-  (`working-tree`, `branch:main`, `commit:<sha>`, `pr:<n>`, `paths:a,b`), and the prompt tells it to
-  read project instructions and to keep its whole report in the final message.
+  verdict. It resolves the diff itself: its typed `target` is one of
+  `working-tree`, `branch`, `commit`, `paths` (plus `targetRef`), and the prompt tells it to read
+  project instructions and to keep its whole report in the final message.
 
 `agent_update` and `agent_pause` are in every allowlist. They let a child report progress without
 ending its task, or stop at a turn boundary while keeping its session for a later `agent_steer`.

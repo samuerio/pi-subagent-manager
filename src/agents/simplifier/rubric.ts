@@ -16,15 +16,18 @@
  *   AGENTS.md and neighboring code, project convention wins over this prompt.
  * - TARGET vocabulary is narrower than the reviewer's because this agent
  *   writes: `working-tree`, `branch:<base>` and `paths:` only.
+ * - The first message is composed by the spawn tool from typed target params
+ *   (src/agents/simplifier/target.ts); steer and resume stay free-form prose,
+ *   the caller's correction channel.
  * Typographic dashes and quotes are normalised to plain ASCII.
  */
 export const SIMPLIFIER_PROCEDURE = `# Simplifier Procedure
 
-Your first message is the task. Its first line is a \`TARGET:\` descriptor naming what to polish; any lines after it are extra instructions from the caller.
+Your first message is composed by the spawn tool; its first line is always a \`TARGET:\` descriptor naming what to polish. No caller instructions reach you; conventions come from \`AGENTS.md\` and neighboring code.
 
 ## 1. Parse the target
 
-- \`TARGET: working-tree\`: uncommitted changes, staged, unstaged and untracked. This is also the default when the descriptor is missing; say that you inferred it.
+- \`TARGET: working-tree\`: uncommitted changes, staged, unstaged and untracked. With a ref it names a worktree: \`TARGET: working-tree:/path/to/wt\` polishes that worktree's checkout, not this one.
 - \`TARGET: branch:<base>\`: files touched by this branch against \`<base>\`; you edit the current checkout only.
 - \`TARGET: paths:<a,b>\`: these files or directories as they stand; there is no diff to compare against.
 
@@ -32,7 +35,7 @@ A pull request is not a valid target here: it would need a checkout you do not h
 
 ## 2. Resolve the scope yourself
 
-Run git with \`bash\`. The caller has not gathered anything, and relative paths resolve against your own working directory.
+Run git with \`bash\`. The caller has not gathered anything, and relative paths resolve against your own working directory. When the target names a worktree ref, prefix every command with \`git -C <worktree>\`.
 
 - working-tree: \`git status --porcelain\` lists the change set; \`git diff HEAD\` covers tracked edits; read untracked files directly.
 - branch:<base>: \`git rev-parse --verify <base>\` (retry with \`origin/<base>\`), then \`git merge-base --all HEAD <base>\` and \`git diff <mergeBase>\` to see what the branch touched. Then \`git status --porcelain\` on top, so polish also covers what the branch added since the merge base.

@@ -5,12 +5,16 @@ import { checklistGuidance } from "./checklist-integration.ts";
 /** One line per spawn verb so /root learns the agent roster without an agent_types call. */
 function agentRoster(): string {
   return listAgentSpecs()
-    .map((spec) => `${spawnToolName(spec.name)} (${spec.name}): ${firstSentence(spec.description)}`)
+    .map(
+      (spec) =>
+        `${spawnToolName(spec.name)} (${spec.name}): ${firstSentence(spec.description)}`,
+    )
     .join("\n");
 }
 
 function firstSentence(text: string): string {
-  const line = text.split("\n").find((entry) => entry.trim().length > 0) ?? text;
+  const line =
+    text.split("\n").find((entry) => entry.trim().length > 0) ?? text;
   const end = line.search(/\.(\s|$)/);
   return (end > 0 ? line.slice(0, end + 1) : line).trim();
 }
@@ -36,10 +40,14 @@ export function subagentPrompt(
     policy,
     `Each spawn tool is one fixed agent; there is no type parameter to choose and no agent listing to fetch:\n${agentRoster()}`,
     "Use task-based kebab-case paths, not agent names. Choose context via the spawn path: /root/<name> or a relative name forks the lexical parent's conversation; an absolute single-segment path /<name> (main thread only, e.g. /review-auth) starts a fresh independent root with no inherited history. Use fresh agents for adversarial review or clean-slate research; give them a self-contained task without the current thread's conclusions.",
+    "Each subagent loses your context, so include in its task what it needs: the plan, relevant file paths, coding conventions, and how to verify. reviewer_spawn and simplifier_spawn are exceptions: they take typed target/targetRef params only and read the repo themselves, so give them no background, diffs or conclusions.",
+    "Spawn reviewer_spawn and simplifier_spawn as fresh roots (absolute single-segment path, e.g. /review-auth) unless you have an explicit reason to fork: a forked snapshot hands them the very conclusions these agents exist to re-derive from the repo.",
     waitingPolicy,
     'Use agent_status to inspect and agent_output for full results. Completion, failure or stop of a wait:false agent is delivered to you as a message event that starts a new turn when you are idle (with Final Recap on, once after all outstanding async agents have finished). Pass timeoutMs to any spawn tool to get a status event if a child runs long; the child is not killed. Valid range 30000–300000 ms; omit for no timeout. To extend a running background agent\'s reporting timer, before or after a timeout event, call agent_steer({path: "/root/task", timeoutMs: 120000}) with message omitted entirely. This resets the timer from now (replacing any pending timer), without sending input, interrupting or resuming the agent; it requires the agent to still be running. After re-arming, end your turn to remain available while it works. For other timeout responses, follow the waiting policy above, send steering input or stop the agent.',
     "Use agent_steer to send input or resume retained sessions. Paused agents have no final answer; completed agents hand back results. Both retain their session.",
     `Maximum depth: ${settings.maxLevels} levels including L1. Shared concurrency: ${settings.maxConcurrent} active threads; waiting parents count.`,
-    ...(settings.checklistIntegration && checklistEligible ? [checklistGuidance(settings.subagentMode)] : []),
+    ...(settings.checklistIntegration && checklistEligible
+      ? [checklistGuidance(settings.subagentMode)]
+      : []),
   ].join("\n");
 }

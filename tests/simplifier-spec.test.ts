@@ -26,7 +26,9 @@ test("the simplifier sits second to last, before the reviewer", () => {
 test("the simplifier reuses the worker role and its own display tokens", () => {
   assert.equal(simplifier.role, "subagents");
   assert.deepEqual(simplifier.skills, []);
-  assert.ok(AGENT_COLORS.includes(simplifier.color as (typeof AGENT_COLORS)[number]));
+  assert.ok(
+    AGENT_COLORS.includes(simplifier.color as (typeof AGENT_COLORS)[number]),
+  );
   assert.match(simplifier.icon ?? "", /^\p{Co}$/u);
   for (const spec of AGENT_SPECS) {
     if (spec.name === "simplifier") continue;
@@ -57,26 +59,46 @@ test("the simplifier may edit but never delegates", () => {
   ])
     assert.equal(simplifier.tools.includes(tool), false, tool);
   for (const spec of AGENT_SPECS)
-    assert.equal(simplifier.tools.includes(spawnToolName(spec.name)), false, spec.name);
+    assert.equal(
+      simplifier.tools.includes(spawnToolName(spec.name)),
+      false,
+      spec.name,
+    );
 });
 
-test("simplifier_spawn describes an in-place editor with its own target set", () => {
-  const tool = spawnTools.find((candidate) => candidate.name === "simplifier_spawn");
+test("simplifier_spawn swaps task for typed target params", () => {
+  const tool = spawnTools.find(
+    (candidate) => candidate.name === "simplifier_spawn",
+  );
   assert.ok(tool);
   assert.deepEqual(Object.keys((tool.parameters as any).properties).sort(), [
     "description",
     "path",
-    "task",
+    "target",
+    "targetRef",
     "timeoutMs",
     "wait",
   ]);
+  // Not name-branched in tools.ts: the seam lives on the spec.
+  assert.ok(simplifier.parameters);
+  assert.ok(simplifier.composeTask);
+  assert.equal("task" in (tool.parameters as any).properties, false);
   assert.match(tool.description, /Simplifies and refines code/);
-  assert.match(tool.description, /TARGET: working-tree/);
-  assert.match(tool.description, /TARGET: branch:main/);
-  assert.match(tool.description, /TARGET: paths:/);
+  assert.match(tool.description, /target: working-tree/);
+  assert.match(tool.description, /targetRef: main/);
+  assert.match(tool.description, /targetRef: src\/orch/);
+  // The old prose channel is gone: no extra-instructions invitation either.
+  assert.doesNotMatch(tool.description, /Extra lines after the descriptor/);
   assert.doesNotMatch(tool.description, /pr:/i);
   assert.doesNotMatch(tool.description, /Simplifier Procedure/);
   assert.ok(tool.description.length < 1800, String(tool.description.length));
+});
+
+test("the simplifier prompt drops the unreachable descriptor-repair branch", () => {
+  const prompt = simplifier.systemPrompt;
+  assert.match(prompt, /first line is always a `TARGET:`/);
+  assert.doesNotMatch(prompt, /extra instructions from the caller/);
+  assert.doesNotMatch(prompt, /when the descriptor is missing/);
 });
 
 test("the simplifier prompt carries the procedure before the rubric", () => {
@@ -132,7 +154,7 @@ test("the rubric keeps the authored taste sections near-verbatim", () => {
     "Avoid nested ternary operators",
     "Choose clarity over brevity",
     "Maintain Balance",
-    "Prioritize \"fewer lines\" over readability",
+    'Prioritize "fewer lines" over readability',
   ])
     assert.ok(prompt.includes(fragment), fragment);
 });

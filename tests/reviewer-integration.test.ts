@@ -40,7 +40,9 @@ test(
       {
         specs: [...AGENT_SPECS],
         onRequest: (request) =>
-          request.path === "/root/review" ? answer(review) : answer("parent answer"),
+          request.path === "/root/review"
+            ? answer(review)
+            : answer("parent answer"),
       },
       async ({ cwd, open, close, errors, requests, tool }) => {
         // Pin every role to a different model id so routing is observable: the harness
@@ -51,8 +53,16 @@ test(
           modes: {
             default: {
               roles: {
-                main: { provider: "integration-test", modelId: "offline", thinkingLevel: "off" },
-                oracle: { provider: "integration-test", modelId: "offline", thinkingLevel: "off" },
+                main: {
+                  provider: "integration-test",
+                  modelId: "offline",
+                  thinkingLevel: "off",
+                },
+                oracle: {
+                  provider: "integration-test",
+                  modelId: "offline",
+                  thinkingLevel: "off",
+                },
                 subagents: {
                   provider: "integration-test",
                   modelId: "offline-alt",
@@ -63,12 +73,15 @@ test(
           },
         };
         await mkdir(path.join(cwd, ".pi"), { recursive: true });
-        await writeFile(path.join(cwd, ".pi", "modes.json"), JSON.stringify(modes));
+        await writeFile(
+          path.join(cwd, ".pi", "modes.json"),
+          JSON.stringify(modes),
+        );
         const session = await open(SessionManager.create(cwd));
         const thread = await tool<ThreadView>(session, "reviewer_spawn", {
           description: "Test spawn",
           path: "review",
-          task: "TARGET: working-tree\nFocus on the new spawn parameter handling.",
+          target: "working-tree",
           wait: true,
         });
 
@@ -77,24 +90,87 @@ test(
         assert.match(thread.output ?? "", /^Verdict: correct/);
         assert.deepEqual(errors, []);
 
-        const child = requests.find((request) => request.path === "/root/review");
+        const child = requests.find(
+          (request) => request.path === "/root/review",
+        );
         assert.ok(child, "the reviewer session ran");
         // The rubric and the procedure both reach the child, and neither reaches the parent prompt.
         assert.match(child.system, /# Review Guidelines/);
         assert.match(child.system, /# Review Procedure/);
         assert.match(child.messagesText, /TARGET: working-tree/);
+        // The composed task is the only content channel: neither caller prose
+        // nor a self-sufficiency bypass reaches the child.
+        assert.match(
+          child.messagesText,
+          /Read AGENTS\.md \/ CLAUDE\.md \/ REVIEW_GUIDELINES\.md yourself/,
+        );
+        assert.doesNotMatch(
+          child.messagesText,
+          /Focus on the new spawn parameter handling/,
+        );
         // Read-only allowlist is enforced at declaration time, not just by the prompt.
-        for (const name of ["read", "bash", "grep", "find", "ls", "agent_update", "agent_pause"])
+        for (const name of [
+          "read",
+          "bash",
+          "grep",
+          "find",
+          "ls",
+          "agent_update",
+          "agent_pause",
+        ])
           assert.ok(child.toolNames.includes(name), name);
-        for (const name of ["write", "edit", "reviewer_spawn", "task_spawn", "agent_wait"])
+        for (const name of [
+          "write",
+          "edit",
+          "reviewer_spawn",
+          "task_spawn",
+          "agent_wait",
+        ])
           assert.equal(child.toolNames.includes(name), false, name);
         // Role routing applies the subagents pin instead of reusing the parent model.
-        assert.equal(`${child.provider}/${child.modelId}`, "integration-test/offline-alt");
+        assert.equal(
+          `${child.provider}/${child.modelId}`,
+          "integration-test/offline-alt",
+        );
 
         // The rubric is a child-role prompt: no other session ever sees it.
-        for (const request of requests.filter((entry) => entry.path !== "/root/review"))
+        for (const request of requests.filter(
+          (entry) => entry.path !== "/root/review",
+        ))
           assert.doesNotMatch(request.system, /# Review Guidelines/);
         assert.equal(thread.model, "integration-test/offline-alt");
+        await close(session);
+      },
+    );
+  },
+);
+
+test(
+  "reviewer_spawn rejects a malformed targetRef before any reviewer session runs",
+  { timeout: 30000 },
+  async () => {
+    await withOfflineHarness(
+      {
+        specs: [...AGENT_SPECS],
+        onRequest: () => answer("parent answer"),
+      },
+      async ({ cwd, open, close, tool, errors, requests }) => {
+        const session = await open(SessionManager.create(cwd));
+        await assert.rejects(
+          tool(session, "reviewer_spawn", {
+            description: "Test spawn",
+            path: "review",
+            target: "branch",
+            wait: false,
+          }),
+          /targetRef is required for target branch/,
+        );
+        assert.deepEqual(errors, []);
+        // Rejection happens in composeTask: no reviewer thread was ever started.
+        assert.equal(
+          requests.filter((request) => request.path === "/root/review").length,
+          0,
+        );
         await close(session);
       },
     );

@@ -1,6 +1,14 @@
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { REVIEW_RUBRIC } from "./reviewer/rubric.ts";
+import {
+  composeReviewerTask,
+  reviewerSpawnParameters,
+} from "./reviewer/target.ts";
+import {
+  composeSimplifierTask,
+  simplifierSpawnParameters,
+} from "./simplifier/target.ts";
 import { SIMPLIFIER_SYSTEM_PROMPT } from "./simplifier/rubric.ts";
 import { type AgentSpec, type AgentSpecName } from "../types.ts";
 
@@ -29,7 +37,12 @@ const CONTROL_TOOLS = [
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** The only skill shipped with an agent; resolved once so the child gets a stable absolute path. */
-const LIBRARIAN_SKILL_DIR = path.join(__dirname, "librarian", "skills", "librarian");
+const LIBRARIAN_SKILL_DIR = path.join(
+  __dirname,
+  "librarian",
+  "skills",
+  "librarian",
+);
 
 const TASK_SYSTEM_PROMPT = `You are pi, a powerful AI coding agent.
 
@@ -283,26 +296,22 @@ Examples:
 /** Where to review, how to resolve each diff, and the reply contract for the reviewer. */
 const REVIEW_PROCEDURE = `# Review Procedure
 
-Your first message is the task. Its first line is a \`TARGET:\` descriptor that says what to review; any lines after it are extra instructions from the caller.
+Your first message is composed by the spawn tool; its first line is always a \`TARGET:\` descriptor that says what to review, and its second paragraph is the focus sentence for that descriptor's kind. No caller instructions reach you, so project-specific review focus lives in \`REVIEW_GUIDELINES.md\` (step 3), not in the spawn call.
 
 ## 1. Parse the target
 
-- \`TARGET: working-tree\`: uncommitted changes, staged, unstaged and untracked.
+- \`TARGET: working-tree\`: uncommitted changes, staged, unstaged and untracked. With a ref it names a worktree: \`TARGET: working-tree:/path/to/wt\` reviews that worktree's checkout, not this one.
 - \`TARGET: branch:<base>\`: this branch compared with \`<base>\`, for example \`TARGET: branch:main\`.
 - \`TARGET: commit:<sha>\`: the change introduced by one commit.
-- \`TARGET: pr:<number>\`: a GitHub pull request.
 - \`TARGET: paths:<a,b>\`: a snapshot review of these files or directories, no diff.
-
-If the descriptor is missing or unreadable, infer the target in this order and say which one you inferred: existing uncommitted changes, then a branch with commits ahead of its upstream or the default branch, then \`HEAD\`.
 
 ## 2. Resolve the diff yourself
 
-Run git with \`bash\`. The caller has not gathered the diff, and relative paths resolve against your own working directory, not the caller's. State the exact commands whose output you reviewed.
+Run git with \`bash\`. The caller has not gathered the diff, and relative paths resolve against your own working directory, not the caller's. When the target names a worktree ref, prefix every command with \`git -C <worktree>\`. State the exact commands whose output you reviewed.
 
 - working-tree: \`git diff HEAD\` covers staged and unstaged edits; \`git ls-files --others --exclude-standard\` lists untracked files, which no diff shows; \`git status --porcelain\` confirms the set. A path listing is not a review: read each untracked file with the read tool, or diff it with \`git diff --no-index /dev/null <file>\`. Do not run \`git add -N\`; it mutates the index.
-- branch:<base>: \`git rev-parse --verify <base>\`, retrying with \`origin/<base>\` when that fails. Then \`git merge-base --all HEAD <base>\` and \`git diff <mergeBase>\`. Never use \`git diff <base>\` here: it includes commits the base added and you never had. If there is no merge base (unrelated or shallow history), fall back to \`git diff <base>..HEAD\` and say so in the report. Prefer \`origin/<base>\` when both refs exist, because a local base branch can be stale. Add \`git ls-files --others --exclude-standard\` when the caller also wants local work reviewed.
+- branch:<base>: never use \`git diff <base>\`: it includes commits the base added and you never had. Resolve the merge base the way the spawn message prescribes: \`git rev-parse --abbrev-ref '<base>@{upstream}'\`, then \`git merge-base HEAD <upstream>\` (with \`git merge-base HEAD '<base>'\` when the upstream lookup fails), then \`git diff <mergeBase>\`. The fallback runs against the local \`<base>\`, which can be stale; if it has no upstream and may be stale, say so in the report. If both merge-base attempts fail, call \`agent_pause\` and ask for the correct base instead of reviewing a wrong diff.
 - commit:<sha>: \`git show --stat <sha>\` to locate the change, then \`git show <sha>\`.
-- pr:<number>: \`gh pr diff <number>\`. If gh is missing or unauthenticated, stop and state the missing prerequisite instead of reconstructing the diff by hand.
 - paths:<a,b>: read the files directly. This is a snapshot review, so there is no diff: judge the code as it stands.
 
 ## 3. Read project instructions
@@ -320,6 +329,10 @@ Judge only what the resolved change introduced. Read surrounding code when a fin
 - Once you start writing the report, call no tools at all, \`agent_update\` included: a later tool call would replace the findings as the handback.
 - Never modify the working tree. No file edits, no shell redirection into files, no \`git checkout\`, \`git switch\`, \`git restore\` or \`git stash\`.
 
+## Scope disclosure
+
+Branch reviews cover the merge-base diff only. If \`git status --porcelain\` shows local changes beyond it, say so in the Human Reviewer Callouts and leave them unreviewed; the caller can request a \`working-tree\` review separately.
+
 ## When the target stays ambiguous
 
 If step 1 leaves two plausible targets, for example \`branch:main\` in a repository whose default branch is \`master\`, call \`agent_pause\` with one precise question. A wrong diff produces a confident and useless review.`;
@@ -328,26 +341,25 @@ const REVIEWER_SYSTEM_PROMPT = `${REVIEW_RUBRIC}\n\n---\n\n${REVIEW_PROCEDURE}`;
 
 export const REVIEWER_DESCRIPTION = `Review a code change and report prioritized, actionable findings with a verdict.
 
-Spawns a reviewer that resolves the target itself; you never gather the diff first. Begin the task with a \`TARGET:\` line naming what to review:
-- \`TARGET: working-tree\` for uncommitted changes, staged, unstaged and untracked
-- \`TARGET: branch:main\` for this branch against a base branch
-- \`TARGET: commit:abc1234\` for one commit
-- \`TARGET: pr:123\` for a GitHub pull request
-- \`TARGET: paths:src/orch,docs/\` for a snapshot review with no diff
+Spawns a reviewer that resolves the target itself. You choose only what to review:
+- \`target: working-tree\` for uncommitted changes (omit targetRef, or pass an absolute worktree path)
+- \`target: branch\` + \`targetRef: main\` for this branch against a base branch
+- \`target: commit\` + \`targetRef: abc1234\` for one commit
+- \`target: paths\` + \`targetRef: src/orch,docs/\` for a snapshot review
 
-Lines after the descriptor are extra instructions, e.g. "TARGET: working-tree\\nFocus on the new spawn parameter handling." Findings carry [P0]-[P3] tags and the final message opens with a verdict, so read it instead of steering. Use this for a findings-based review of a change (diff or snapshot); oracle_spawn for design and planning questions; task_spawn when fixes are also needed.`;
+The reviewer reads the repo itself, so there is no prose channel: do not describe the change, paste diffs, or state that it is correct or verified. \`description\` is a UI label the reviewer never sees. Findings carry [P0]-[P3] tags and the final message opens with a verdict, so read it instead of steering. Use this for a findings-based review of a change (diff or snapshot); oracle_spawn for design and planning questions; task_spawn when fixes are also needed.`;
 
 /** Shared search surface for the advisory and lookup agents (read-only behavior is prompt-enforced for reviewer/librarian, not allowlist-enforced). */
 const READ_ONLY_TOOLS = [...REPORT_TOOLS, "read", "bash", "grep", "find", "ls"];
 export const SIMPLIFIER_DESCRIPTION = `Simplifies and refines code for clarity, consistency, and maintainability while preserving all functionality.
 
 Spawns an editor that polishes recent changes in place; unlike reviewer_spawn it edits the working tree, so a pending review diff is stale after a run.
-It resolves its own target from git state; you do not gather diffs first. Begin the task with a \`TARGET:\` line naming what to polish:
-- \`TARGET: working-tree\` for uncommitted changes (default when the line is omitted)
-- \`TARGET: branch:main\` for what this branch touched against a base
-- \`TARGET: paths:src/orch,docs/\` for these files or directories as they stand
+It resolves its own scope from git state. You choose only what to polish:
+- \`target: working-tree\` for uncommitted changes (omit targetRef)
+- \`target: branch\` + \`targetRef: main\` for what this branch touched against a base
+- \`target: paths\` + \`targetRef: src/orch,docs/\` for these files or directories as they stand
 
-Extra lines after the descriptor are caller instructions. Behavior-changing work is not for it; bug fixes, features and larger refactors stay in task_spawn or your own hands. Judge the polished result with reviewer_spawn afterwards.`;
+The simplifier reads the repo itself, so there is no prose channel: naming a scope is all you can hand it, never background, pasted diffs or conclusions. \`description\` is a UI label the simplifier never sees. Behavior-changing work is not for it; larger refactors stay in task_spawn. Judge the polished result with reviewer_spawn afterwards.`;
 
 /**
  * The six built-in agents, in registration order. Adding an agent means adding
@@ -410,6 +422,10 @@ export const AGENT_SPECS: readonly AgentSpec[] = [
     name: "simplifier",
     description: SIMPLIFIER_DESCRIPTION,
     systemPrompt: SIMPLIFIER_SYSTEM_PROMPT,
+    // Typed target params like the reviewer: scope claims and pasted diffs
+    // never reach an agent that is about to edit files.
+    parameters: simplifierSpawnParameters,
+    composeTask: composeSimplifierTask,
     role: "subagents",
     color: "syntaxKeyword",
     icon: "\u{f0d0}",
@@ -420,6 +436,10 @@ export const AGENT_SPECS: readonly AgentSpec[] = [
     name: "reviewer",
     description: REVIEWER_DESCRIPTION,
     systemPrompt: REVIEWER_SYSTEM_PROMPT,
+    // Typed target params; the composed first message keeps the caller's prose
+    // out of the reviewer's context, so adversarial review stays adversarial.
+    parameters: reviewerSpawnParameters,
+    composeTask: composeReviewerTask,
     role: "subagents",
     color: "toolDiffAdded",
     icon: "\u{f00c}",
@@ -429,7 +449,9 @@ export const AGENT_SPECS: readonly AgentSpec[] = [
 ];
 
 let activeSpecs: readonly AgentSpec[] = AGENT_SPECS;
-let byName = new Map<string, AgentSpec>(AGENT_SPECS.map((spec) => [spec.name, spec]));
+let byName = new Map<string, AgentSpec>(
+  AGENT_SPECS.map((spec) => [spec.name, spec]),
+);
 
 /**
  * Replace the active roster. This exists for tests that need synthetic agents

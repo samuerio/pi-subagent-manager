@@ -15,6 +15,16 @@
  * - The hard-coded "Response in chinese" became a language rule tied to the
  *   task text, because this prompt ships to every user of the package.
  * - Typographic dashes and quotes were normalised to plain ASCII.
+ * - The first message is composed by the spawn tool from typed target params
+ *   (src/agents/reviewer/target.ts); it also carries a per-kind focus sentence,
+ *   a verbatim transplant of review.ts' per-target prompts minus its fallback
+ *   commands (the procedure's section 2 recipes replace them) and minus its
+ *   closing "provide prioritized findings" (Output format already owns it).
+ *   Applied deltas: the four-step merge-base recipe, no `pr` kind,
+ *   LOCAL_CHANGES not ported (loop-fixing-only upstream), worktree refs via
+ *   `git -C`.
+ * - The caller's only entry is the typed target; the author's self-serving
+ *   claims never reach the reviewer's context.
  */
 export const REVIEW_RUBRIC = `# Review Guidelines
 

@@ -4,27 +4,29 @@ Use [commands](#commands) to manage agents yourself, or let the main agent use t
 
 ## Model-facing tools
 
-| Tool              | Purpose                                                                    |
-| ----------------- | -------------------------------------------------------------------------- |
-| `task_spawn`      | Start a `task` child. Waits by default.                                    |
-| `finder_spawn`    | Start a `finder` child (code search).                                      |
-| `oracle_spawn`    | Start an `oracle` child (reasoning advisor).                               |
-| `librarian_spawn` | Start a `librarian` child (external repositories).                         |
-| `simplifier_spawn` | Start a `simplifier` child (in-place polish). Give the task a `TARGET:` first line. |
-| `reviewer_spawn`  | Start a `reviewer` child. Give the task a `TARGET:` first line.            |
-| `agent_wait`      | Wait for settlement; optional `timeoutMs`                                  |
-| `agent_steer`     | Send `{path, message?, timeoutMs?}`; queues/resumes and/or re-arms timeout |
-| `agent_status`    | Inspect one path or list visible threads                                   |
-| `agent_update`    | Child: report progress                                                     |
-| `agent_pause`     | Child: pause without an answer                                             |
-| `agent_stop`      | Cancel a descendant and its subtree                                        |
-| `agent_output`    | Page through long final answers by character offset                        |
+| Tool               | Purpose                                                                         |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `task_spawn`       | Start a `task` child. Waits by default.                                         |
+| `finder_spawn`     | Start a `finder` child (code search).                                           |
+| `oracle_spawn`     | Start an `oracle` child (reasoning advisor).                                    |
+| `librarian_spawn`  | Start a `librarian` child (external repositories).                              |
+| `simplifier_spawn` | Start a `simplifier` child (in-place polish). Typed `target`/`targetRef` below. |
+| `reviewer_spawn`   | Start a `reviewer` child. Typed `target`/`targetRef` below.                     |
+| `agent_wait`       | Wait for settlement; optional `timeoutMs`                                       |
+| `agent_steer`      | Send `{path, message?, timeoutMs?}`; queues/resumes and/or re-arms timeout      |
+| `agent_status`     | Inspect one path or list visible threads                                        |
+| `agent_update`     | Child: report progress                                                          |
+| `agent_pause`      | Child: pause without an answer                                                  |
+| `agent_stop`       | Cancel a descendant and its subtree                                             |
+| `agent_output`     | Page through long final answers by character offset                             |
 
-Every spawn verb takes the same `{path, description, task, wait?, timeoutMs?}` object. There is no
+Every spawn verb takes the same `{path, description, wait?, timeoutMs?}` object. There is no
 `type` field: the tool name _is_ the agent, so a child can only start agents its own allowlist
-exposes. `description` is required: a one-line label of what the child will do, shown on the call
-line, in the Agents widget and in the Agents tree, so you can follow parallel agents without
-opening them.
+exposes. `reviewer_spawn` and `simplifier_spawn` replace `task` with typed `target`/`targetRef`
+parameters (see below); the tool composes the first message and the repo carries the rest, so give
+them no background, diffs or conclusions. `description` is required: a one-line label of what the
+child will do, shown on the call line, in the Agents widget and in the Agents tree, so you can
+follow parallel agents without opening them.
 
 ```json
 {
@@ -61,40 +63,43 @@ full untruncated task is also available in the transcript's tool-call args. Deta
 
 ### Reviewer targets
 
-`reviewer_spawn` reads what to review from the first line of `task`. The reviewer resolves the diff
-itself, so the caller never has to gather it:
+`reviewer_spawn` reviews through typed parameters instead of a `task` text: `target`
+(`working-tree`, `branch`, `commit`, `paths`) plus `targetRef`, and the tool composes the
+first message. The reviewer resolves the diff itself, so the caller never has to gather it:
 
-| First line                     | Reviews                                                   |
-| ------------------------------ | --------------------------------------------------------- |
-| `TARGET: working-tree`         | Uncommitted changes: staged, unstaged and untracked files |
-| `TARGET: branch:main`          | This branch against a base branch, using its merge base   |
-| `TARGET: commit:abc1234`       | One commit                                                |
-| `TARGET: pr:123`               | A GitHub pull request through `gh pr diff`                |
+| target + targetRef                        | Reviews                                                   |
+| ----------------------------------------- | --------------------------------------------------------- |
+| `working-tree` (no ref)                   | Uncommitted changes: staged, unstaged and untracked files |
+| `working-tree` + `targetRef: /path/to/wt` | That worktree's uncommitted changes                       |
+| `branch` + `targetRef: main`              | This branch against a base branch, using its merge base   |
+| `commit` + `targetRef: abc1234`           | One commit                                                |
+| `paths` + `targetRef: src/orch,docs/`     | Those files or directories as a snapshot review           |
+
+There is no `pr` target: no caller can fill a PR descriptor's title, base and merge base without
+running `gh`/`git`, and the spawn side composes its message without running commands.
 
 ### Simplifier targets
 
-`simplifier_spawn` reads what to polish from the first line of `task`. The simplifier resolves the
-scope itself and edits in place, so its target vocabulary is narrower than the reviewer's:
+`simplifier_spawn` polishes through the same typed `target`/`targetRef` parameters, resolving the
+scope itself and editing in place, so its vocabulary is narrower than the reviewer's:
 
-| First line                     | Polishes                                                  |
-| ------------------------------ | --------------------------------------------------------- |
-| `TARGET: working-tree`         | Uncommitted changes: staged, unstaged and untracked files |
-| `TARGET: branch:main`          | What this branch touched against a base, current checkout only |
-| `TARGET: paths:src/orch,docs/` | Those files or directories as they stand                  |
+| target + targetRef                        | Polishes                                                       |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `working-tree` (no ref)                   | Uncommitted changes: staged, unstaged and untracked files      |
+| `working-tree` + `targetRef: /path/to/wt` | That worktree's uncommitted changes                            |
+| `branch` + `targetRef: main`              | What this branch touched against a base, current checkout only |
+| `paths` + `targetRef: src/orch,docs/`     | Those files or directories as they stand                       |
 
-No `TARGET: commit:` and no `TARGET: pr:` exist for the simplifier: a pull request would need a
-checkout it does not have, and an unusable descriptor makes it pause and ask rather than fall back
-to the default. Lines after the descriptor are extra instructions. It runs one pass, may create
-files only as move-extractions from existing ones, never mutates git state, and reports every edit
-with a reason, the verification commands it ran before and after, and zero edits as a valid outcome.
+No `commit` and no `pr` target exist for the simplifier: an unusable descriptor makes it pause
+and ask rather than fall back to the default. It runs one pass, may create files only as
+move-extractions from existing ones, never mutates git state, and reports every edit with a reason,
+the verification commands it ran before and after, and zero edits as a valid outcome.
 See [built-in agents](default-agents.md#the-six-agents) for the rubric behind it.
 
-Lines after the descriptor are extra instructions. The reviewer stays read-only by instruction
-(the allowlist still carries bash, so read-only is prompt-enforced), keeps its whole
-report in its final message, and opens that message with `Verdict: correct` or
-`Verdict: needs attention`. With no descriptor it infers a target and says which one it inferred;
-when two targets stay plausible it pauses and asks rather than guessing.
-See [built-in agents](default-agents.md#the-six-agents) for the rubric behind it.
+The reviewer stays read-only by instruction (the allowlist still carries bash, so read-only is
+prompt-enforced), keeps its whole report in its final message, and opens that message with
+`Verdict: correct` or `Verdict: needs attention`. When two targets stay plausible it pauses and
+asks rather than guessing.
 See [built-in agents](default-agents.md#the-six-agents) for the rubric behind it.
 
 Child progress and completion notifications are retained in the main agent's context without adding visible chat messages. When a detached (`wait: false`) agent completes, fails or is stopped, the main agent receives a message event that starts a new turn if it is idle (or right after its current turn settles), so it never has to poll. Progress updates and foreground results do not start a turn. The opt-in **[labs] Final Recap** setting changes this: completion messages for async agents are recorded without waking the main agent, and once **all outstanding async agents have reported**, one recap turn summarizes them. Enabling it uses more tokens and context. Use the Agents widget, `/agents tree`, or `agent_output` to inspect child status and answers. With the opt-in **[labs] Housekeeping model**, `/agents tree` shows a model-written one-line summary of each running agent's current work in place of its raw tool-call line (see [settings](settings.md#labs-housekeeping-model-housekeepingenabled-housekeepingmodel)).
