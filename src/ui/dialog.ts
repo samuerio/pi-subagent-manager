@@ -4,12 +4,14 @@ import type {
   KeybindingsManager,
   Theme,
 } from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
   CURSOR_MARKER,
   Editor,
   getKeybindings,
   Input,
   Key,
+  Markdown,
   matchesKey,
   stripTerminalSequences,
   truncateToWidth,
@@ -25,7 +27,8 @@ export interface DialogHost {
   requestRender(force?: boolean): void;
   terminal?: { rows: number };
 }
-export interface DialogEditorHost extends DialogHost {
+/** Host with a known terminal height, for views that size themselves from it. */
+export interface DialogTerminalHost extends DialogHost {
   terminal: { rows: number };
 }
 export interface DialogRow {
@@ -45,6 +48,20 @@ export const DIALOG_OPTIONS = {
     anchor: "center",
     width: "90%",
     maxHeight: "90%",
+    margin: 1,
+  },
+} as const;
+/**
+ * Overlay options for the pager: it sizes its frame to the terminal
+ * (rows - 2), so the overlay must not re-clamp it to 90% or its bottom
+ * chrome gets sliced. Sibling dialogs keep DIALOG_OPTIONS.
+ */
+export const PAGER_DIAL_OG_OPTIONS = {
+  overlay: true,
+  overlayOptions: {
+    anchor: "center",
+    width: "100%",
+    maxHeight: "100%",
     margin: 1,
   },
 } as const;
@@ -104,7 +121,7 @@ export class DialogEditor {
   private editor: Editor;
   private initialText: string;
   constructor(
-    private host: DialogEditorHost,
+    private host: DialogTerminalHost,
     private theme: Theme,
     readonly title: string,
     readonly prefill: string,
@@ -179,6 +196,110 @@ export function dialogEditor(
     (host, theme, _keys, done) =>
       new DialogEditor(host, theme, title, prefill, done),
     DIALOG_OPTIONS,
+  );
+}
+
+/**
+ * Read-only pager in the same shell as the surrounding form. The shared Editor
+ * is an input control: it renders a viewport anchored to the cursor, so a viewer
+ * has to lay out the whole text itself and own the scroll offset.
+ */
+export class DialogTextView implements Component {
+  private lines: string[] = [];
+  private layoutWidth = 0;
+  private scrollTop = 0;
+  private pageRows = 1;
+  constructor(
+    private host: DialogTerminalHost,
+    private theme: Theme,
+    readonly title: string,
+    readonly text: string,
+    readonly markdown: boolean,
+    private done: (value: undefined) => void,
+  ) {}
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape)) return this.done(undefined);
+    const limit = this.maxTop(this.pageRows);
+    if (matchesKey(data, Key.up) || data === "k") this.scrollTop -= 1;
+    else if (matchesKey(data, Key.down) || data === "j") this.scrollTop += 1;
+    else if (matchesKey(data, Key.pageUp) || matchesKey(data, Key.ctrl("u")))
+      this.scrollTop -= this.pageRows;
+    else if (matchesKey(data, Key.pageDown) || matchesKey(data, Key.ctrl("d")))
+      this.scrollTop += this.pageRows;
+    else if (matchesKey(data, Key.home)) this.scrollTop = 0;
+    else if (matchesKey(data, Key.end)) this.scrollTop = limit;
+    else return;
+    this.scrollTop = this.clamp(this.scrollTop, limit);
+    this.host.requestRender();
+  }
+
+  invalidate(): void {
+    this.layoutWidth = 0;
+  }
+
+  /** Largest valid scroll offset: the top of the last full page. */
+  private maxTop(rows: number): number {
+    return Math.max(0, this.lines.length - rows);
+  }
+
+  private clamp(top: number, limit: number): number {
+    return Math.max(0, Math.min(limit, top));
+  }
+
+  /** Whole text laid out once per width; the viewer only ever slices it. */
+  private layout(width: number): string[] {
+    const columns = Math.max(1, width);
+    if (this.layoutWidth === columns) return this.lines;
+    // Sanitize line by line: dialogText also collapses newlines into spaces.
+    // The markdown branch must do this too: Markdown re-emits any escape bytes
+    // it is given, and only the themed renderer's own ANSI is trusted here.
+    const clean = this.text.replace(/\r\n?/g, "\n").split("\n").map(dialogText).join("\n");
+    this.lines = this.markdown
+      ? new Markdown(clean, 0, 0, getMarkdownTheme()).render(columns)
+      : clean.split("\n").flatMap((line) => wrapTextWithAnsi(line, columns));
+    this.layoutWidth = columns;
+    return this.lines;
+  }
+
+  render(width: number): string[] {
+    // Full height minus one row per edge: a document viewer values every row,
+    // and LiveAgentView fills the terminal the same way.
+    const height = Math.max(1, this.host.terminal.rows - 2);
+    const budget = Math.max(0, height - 4);
+    // A reader parked at the end stays pinned across a re-wrap; the first layout
+    // has no end yet, so it starts at the top.
+    const wasAtEnd = this.layoutWidth !== 0 && this.scrollTop >= this.maxTop(this.pageRows);
+    // Borders and the body prefix take three columns; laying out wider would re-wrap.
+    const lines = this.layout(width - 3);
+    this.pageRows = Math.max(1, budget);
+    const limit = this.maxTop(budget);
+    this.scrollTop = wasAtEnd ? limit : this.clamp(this.scrollTop, limit);
+    const visible = lines.slice(this.scrollTop, this.scrollTop + budget);
+    const footer =
+      limit > 0
+        ? `Lines ${this.scrollTop + 1}-${this.scrollTop + visible.length}/${lines.length} · ↑↓/jk · PgUp/PgDn · Ctrl+U/Ctrl+D · Home/End · Esc close`
+        : "Esc close";
+    return frameDialog(
+      this.theme,
+      width,
+      height,
+      this.title,
+      visible.map((line) => ` ${line}`),
+      footer,
+    );
+  }
+}
+
+export function dialogTextView(
+  ctx: ExtensionContext,
+  title: string,
+  text: string,
+  markdown = false,
+): Promise<void> {
+  return ctx.ui.custom(
+    (host, theme, _keys, done) => new DialogTextView(host, theme, title, text, markdown, done),
+    PAGER_DIAL_OG_OPTIONS,
   );
 }
 

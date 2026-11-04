@@ -15,7 +15,7 @@ import {
   type OverlayOptions,
 } from "@earendil-works/pi-tui";
 import { AGENT_COLORS } from "../src/prefs/colors.ts";
-import { DialogMenu, dialogHeight, type DialogHost } from "../src/ui/dialog.ts";
+import { DialogMenu, DialogTextView, dialogHeight, type DialogHost } from "../src/ui/dialog.ts";
 import {
   buildStatusTree,
   showAgentStatus,
@@ -1190,17 +1190,19 @@ test("capped preview keeps every tree row on screen despite a long task", () => 
   assert.ok(previewText <= 5, `preview text capped at 5 lines, saw ${previewText}`);
 });
 
-test("Actions View task opens the read-only editor with the full task text", async () => {
+test("Actions View actions open the read-only pager with the full text", async () => {
   const threads = [
     thread("/root/a", {
       parent: "/root",
       task: "task TARGET: file.ts\nSecond \x1b[31mline\x00",
+      output: "first answer line\nsecond answer line",
     }),
   ];
-  const editors: Array<{ title: string; text: string }> = [];
+  const viewers: DialogTextView[] = [];
   const controller = {
     list: () => threads,
     get: (path: string) => threads.find((item) => item.path === path)!,
+    output: (path: string) => threads.find((item) => item.path === path)!.output!,
   } as unknown as ThreadController;
   let menus = 0;
   const ctx = uiContext({
@@ -1214,17 +1216,31 @@ test("Actions View task opens the read-only editor with the full task text", asy
         "Stop",
         "Back",
       ]);
-      // showThreads reopens the menu after each action; pass 2 exits.
-      return menus === 1 ? "View task" : undefined;
+      // showThreads reopens the menu after each action; the third pass exits.
+      return ["View task", "View output"][menus - 1];
     },
-    editor: async (title: string, prefill: string) => {
-      editors.push({ title, text: prefill });
-      return prefill;
+    custom: (factory: Function) => {
+      viewers.push(
+        factory(
+          host(30, () => {}),
+          theme,
+          {},
+          () => {},
+        ),
+      );
+      return Promise.resolve(undefined);
     },
   });
   await showThreads(ctx, controller, "/root/a");
-  assert.equal(editors.length, 1, "exactly one editor opened");
-  assert.match(editors[0]!.title, /— TASK — READ ONLY \(changes discarded\)/);
+  assert.equal(viewers.length, 2, "one pager per View action");
+  const [task, output] = viewers;
+  assert.match(task.title, /— TASK — READ ONLY$/);
   // The full multi-line task survives the split / sanitize / join round trip.
-  assert.equal(editors[0]!.text, "task TARGET: file.ts\nSecond line ");
+  assert.equal(task.text, "task TARGET: file.ts\nSecond line ");
+  assert.match(output.title, /— READ ONLY$/);
+  assert.equal(output.text, "first answer line\nsecond answer line");
+  // Both lines are laid out from the top, not hidden behind a scrolled viewport.
+  const body = task.render(100).map((line) => stripTerminalSequences(line).slice(1, -1).trim());
+  assert.ok(body.includes("task TARGET: file.ts"), body.join(" | "));
+  assert.ok(body.includes("Second line"), body.join(" | "));
 });

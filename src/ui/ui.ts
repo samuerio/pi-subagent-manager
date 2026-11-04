@@ -9,9 +9,11 @@ import {
 import { AGENT_COLORS } from "../prefs/colors.ts";
 import type { LoaderStyle, WidgetMode } from "../prefs/settings.ts";
 import { AGENT_PROGRESS_INTERVAL, agentProgressIcon, isAgentLoaderGlyph } from "./agent-loader.ts";
-export { AGENT_PROGRESS_INTERVAL, agentProgressIcon } from "./agent-loader.ts";
+import { dialogTextView } from "./dialog.ts";
 import { buildStatusTree, lastStarted, threadActivity, type StatusRow } from "./thread-tree.ts";
 import type { ThreadService, ThreadView } from "../types.ts";
+
+export { AGENT_PROGRESS_INTERVAL, agentProgressIcon } from "./agent-loader.ts";
 
 export type ThreadController = Pick<
   ThreadService,
@@ -506,16 +508,21 @@ export async function showThreads(
           action === "View output"
             ? controller.output(selectedPath)
             : await controller.transcript(selectedPath);
-        // Built-in editor is a portable viewer; edits are explicitly discarded.
-        await ctx.ui.editor(
-          `${sanitizeText(selectedPath)} — READ ONLY (changes discarded)`,
+        // A pager, not the editor: long bodies must stay readable top to bottom.
+        // LLM-authored output reads as Markdown; the JSON transcript stays raw.
+        await dialogTextView(
+          ctx,
+          `${sanitizeText(selectedPath)} — READ ONLY`,
           text.split("\n").map(sanitizeText).join("\n"),
+          action === "View output",
         );
       } else if (action === "View task") {
         // Read-only like the View actions above, so a long prompt stays legible in full.
-        await ctx.ui.editor(
-          `${sanitizeText(selectedPath)} — TASK — READ ONLY (changes discarded)`,
+        await dialogTextView(
+          ctx,
+          `${sanitizeText(selectedPath)} — TASK — READ ONLY`,
           thread.task.split("\n").map(sanitizeText).join("\n"),
+          true,
         );
       } else if (action === "Send input / resume") {
         const message = await ctx.ui.editor("Send input / resume retained session", "");
