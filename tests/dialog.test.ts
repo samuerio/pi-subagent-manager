@@ -275,7 +275,7 @@ test("multiline editor strips control sequences but returns unchanged prefill ve
 });
 
 // --- DialogTextView ---------------------------------------------------------
-// A 24-row terminal yields a 22-row frame: two borders, 18 body rows, separator, footer.
+// A 24-row terminal yields a 24-row frame: two borders, 20 body rows, separator, footer.
 
 const PAGE_UP = "\x1b[5~";
 const PAGE_DOWN = "\x1b[6~";
@@ -317,20 +317,20 @@ function pagerContext() {
 test("text view lays the whole text out from the top, not around a cursor", () => {
   const view = new DialogTextView(host(24), theme, "Output", numberedLines(60), false, () => {});
   const lines = view.render(80);
-  // The pager fills the terminal (rows - 2), looser than the shared dialog bound.
-  bounded(lines, 80, 24, 24 - 2);
-  assert.equal(lines.length, 22);
+  // The pager fills the terminal, looser than the shared dialog bound.
+  bounded(lines, 80, 24, 24);
+  assert.equal(lines.length, 24);
   const shown = body(lines);
   assert.equal(shown[0], "line 0", "starts at the first line");
-  assert.equal(shown[17], "line 17", "fills the 18-row body budget");
+  assert.equal(shown[19], "line 19", "fills the 20-row body budget");
   assert.ok(!shown.includes("line 59"), "the tail is scrolled out, not the head");
-  assert.match(footerOf(lines), /Lines 1-18\/60/);
+  assert.match(footerOf(lines), /Lines 1-20\/60/);
 });
 
 test("text view omits the line range when the text fits the body", () => {
   const view = new DialogTextView(host(24), theme, "Task", "one\ntwo\nthree", false, () => {});
   const lines = view.render(80);
-  bounded(lines, 80, 24, 24 - 2);
+  bounded(lines, 80, 24, 24);
   assert.deepEqual(body(lines).slice(0, 3), ["one", "two", "three"]);
   assert.equal(footerOf(lines), "Esc close");
 });
@@ -341,33 +341,33 @@ test("text view scrolls by line, page, and both ends", () => {
     closed = value;
   });
   const range = () => footerOf(view.render(80));
-  assert.match(range(), /Lines 1-18\/100/);
+  assert.match(range(), /Lines 1-20\/100/);
   view.handleInput(DOWN);
-  assert.match(range(), /Lines 2-19\/100/);
+  assert.match(range(), /Lines 2-21\/100/);
   view.handleInput(PAGE_DOWN);
-  assert.match(range(), /Lines 20-37\/100/);
+  assert.match(range(), /Lines 22-41\/100/);
   view.handleInput(PAGE_UP);
-  assert.match(range(), /Lines 2-19\/100/);
+  assert.match(range(), /Lines 2-21\/100/);
   view.handleInput(END);
-  assert.match(range(), /Lines 83-100\/100/);
+  assert.match(range(), /Lines 81-100\/100/);
   assert.equal(body(view.render(80)).at(-1), "line 99", "the last line is visible at the end");
   view.handleInput(HOME);
-  assert.match(range(), /Lines 1-18\/100/);
+  assert.match(range(), /Lines 1-20\/100/);
   // Clamped at both ends instead of scrolling into blank space.
   view.handleInput(UP);
-  assert.match(range(), /Lines 1-18\/100/);
+  assert.match(range(), /Lines 1-20\/100/);
   view.handleInput(END);
   view.handleInput(DOWN);
-  assert.match(range(), /Lines 83-100\/100/);
+  assert.match(range(), /Lines 81-100\/100/);
   // Vim-style aliases: j/k step one line, Ctrl+U/Ctrl+D a full page.
   view.handleInput("k");
-  assert.match(range(), /Lines 82-99\/100/);
+  assert.match(range(), /Lines 80-99\/100/);
   view.handleInput("j");
-  assert.match(range(), /Lines 83-100\/100/);
+  assert.match(range(), /Lines 81-100\/100/);
   view.handleInput(CTRL_U);
-  assert.match(range(), /Lines 65-82\/100/);
+  assert.match(range(), /Lines 61-80\/100/);
   view.handleInput(CTRL_D);
-  assert.match(range(), /Lines 83-100\/100/);
+  assert.match(range(), /Lines 81-100\/100/);
   view.handleInput(ESC);
   assert.equal(closed, undefined, "Esc closes without a result");
 });
@@ -376,7 +376,7 @@ test("text view keeps every line, sanitizes escapes, and re-wraps on width chang
   const text = ["head \x1b[31mred\x00", "middle", "tail"].join("\r\n") + " " + "word ".repeat(40);
   const view = new DialogTextView(host(24), theme, "Output", text, false, () => {});
   const wideLines = view.render(120);
-  bounded(wideLines, 120, 24, 24 - 2);
+  bounded(wideLines, 120, 24, 24);
   const wide = body(wideLines);
   assert.ok(!wide.join("\n").includes("\x1b"), "escape stripped");
   assert.equal(wide[0], "head red", "control byte becomes a space");
@@ -384,7 +384,7 @@ test("text view keeps every line, sanitizes escapes, and re-wraps on width chang
   assert.ok(wide.join(" ").includes("word word word"), "long text wraps instead of clipping");
   // A narrower render re-lays-out the same text rather than reusing the wide slice.
   const narrowLines = view.render(40);
-  bounded(narrowLines, 40, 24, 24 - 2);
+  bounded(narrowLines, 40, 24, 24);
   const narrow = body(narrowLines);
   assert.ok(narrow.length > 0);
   assert.equal(narrow[0], "head red");
@@ -401,27 +401,27 @@ test("text view keeps the end pinned when a resize re-wraps the layout", () => {
       .slice(1, 4) as [string, string, string];
   view.render(80);
   view.handleInput(END);
-  assert.deepEqual(range(view.render(80)), ["13", "30", "30"], "pinned to the end at wide width");
+  assert.deepEqual(range(view.render(80)), ["11", "30", "30"], "pinned to the end at wide width");
   // A narrower terminal re-wraps every paragraph; a reader at the end stays at the new end.
   const narrow = view.render(20);
-  bounded(narrow, 20, 24, 24 - 2);
+  bounded(narrow, 20, 24, 24);
   const [start, end, total] = range(narrow);
   assert.equal(end, total, "the last line is still visible after the re-wrap");
   assert.ok(
-    Number(start) > 13,
+    Number(start) > 11,
     "the window moved with the re-wrap instead of keeping the old offset",
   );
   // Widening back re-pins to the end as well.
-  assert.deepEqual(range(view.render(80)), ["13", "30", "30"]);
+  assert.deepEqual(range(view.render(80)), ["11", "30", "30"]);
 });
 
 test("dialogTextView mounts the pager as a custom overlay", async () => {
   const { views, options, ctx } = pagerContext();
   await dialogTextView(ctx, "Output", numberedLines(40));
   const rendered = views[0]!.render(60);
-  bounded(rendered, 60, 24, 24 - 2);
+  bounded(rendered, 60, 24, 24);
   assert.equal(body(rendered)[0], "line 0");
-  assert.match(footerOf(rendered), /Lines 1-18\/40/);
+  assert.match(footerOf(rendered), /Lines 1-20\/40/);
   // The pager's frame fills the terminal, so the overlay must not re-clamp it.
   assert.deepEqual(options[0], PAGER_DIAL_OG_OPTIONS, "pager mounts with its own overlay options");
 });
@@ -441,7 +441,7 @@ test("text view renders markdown with the shared theme and keeps scroll bounds",
   ].join("\n");
   const view = new DialogTextView(host(24), theme, "Output", text, true, () => {});
   const lines = view.render(80);
-  bounded(lines, 80, 24, 24 - 2);
+  bounded(lines, 80, 24, 24);
   const shown = body(lines);
   assert.ok(shown.join("\n").includes("Head"), "the heading renders");
   assert.ok(shown.join("\n").includes("bold body"), "inline styling keeps its text");

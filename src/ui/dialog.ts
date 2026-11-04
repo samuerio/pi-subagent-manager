@@ -52,9 +52,9 @@ export const DIALOG_OPTIONS = {
   },
 } as const;
 /**
- * Overlay options for the pager: it sizes its frame to the terminal
- * (rows - 2), so the overlay must not re-clamp it to 90% or its bottom
- * chrome gets sliced. Sibling dialogs keep DIALOG_OPTIONS.
+ * Overlay options for the pager: it sizes its frame to the full terminal,
+ * so the overlay must hand it the whole surface (no 90% clamp, no margin)
+ * or the bottom chrome gets sliced. Sibling dialogs keep DIALOG_OPTIONS.
  */
 export const PAGER_DIAL_OG_OPTIONS = {
   overlay: true,
@@ -62,7 +62,7 @@ export const PAGER_DIAL_OG_OPTIONS = {
     anchor: "center",
     width: "100%",
     maxHeight: "100%",
-    margin: 1,
+    margin: 0,
   },
 } as const;
 
@@ -263,9 +263,9 @@ export class DialogTextView implements Component {
   }
 
   render(width: number): string[] {
-    // Full height minus one row per edge: a document viewer values every row,
-    // and LiveAgentView fills the terminal the same way.
-    const height = Math.max(1, this.host.terminal.rows - 2);
+    // Fill the entire terminal: a document viewer values every row, and
+    // LiveAgentView already fills the terminal the same way.
+    const height = Math.max(1, this.host.terminal.rows);
     const budget = Math.max(0, height - 4);
     // A reader parked at the end stays pinned across a re-wrap; the first layout
     // has no end yet, so it starts at the top.
