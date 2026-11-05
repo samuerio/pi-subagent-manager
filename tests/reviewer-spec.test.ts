@@ -98,7 +98,8 @@ test("reviewer_spawn swaps task for typed target params", () => {
   assert.doesNotMatch(tool.description, /not supported|refuse|use \/review/i);
   // The rubric belongs to the child prompt only; per-turn tool descriptions stay small.
   assert.doesNotMatch(tool.description, /Review Guidelines/);
-  assert.ok(tool.description.length < 1800, String(tool.description.length));
+  // 2100 leaves room for the generated tool-surface line.
+  assert.ok(tool.description.length < 2100, String(tool.description.length));
 });
 
 test("the reviewer prompt drops the unreachable descriptor-repair branch", () => {

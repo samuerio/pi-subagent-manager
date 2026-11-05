@@ -91,7 +91,8 @@ test("simplifier_spawn swaps task for typed target params", () => {
   assert.doesNotMatch(tool.description, /Extra lines after the descriptor/);
   assert.doesNotMatch(tool.description, /pr:/i);
   assert.doesNotMatch(tool.description, /Simplifier Procedure/);
-  assert.ok(tool.description.length < 1800, String(tool.description.length));
+  // 2100 leaves room for the generated tool-surface line.
+  assert.ok(tool.description.length < 2100, String(tool.description.length));
 });
 
 test("the simplifier prompt drops the unreachable descriptor-repair branch", () => {

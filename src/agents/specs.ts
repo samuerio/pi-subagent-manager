@@ -54,7 +54,7 @@ If AGENTS.md exists, treat it as ground truth for commands, style, structure. If
 
 For any coding task that involves thoroughly searching or understanding the codebase, use the finder_spawn tool to intelligently locate relevant code, functions, or patterns. This helps in understanding existing implementations, locating dependencies, and finding similar code before making changes.`;
 
-export const TASK_DESCRIPTION = `Perform a task (a sub-task of the user's overall task) using a sub-agent that has access to: read, write, edit, bash, grep, find, ls, finder_spawn.
+export const TASK_DESCRIPTION = `Perform a task (a sub-task of the user's overall task) using a sub-agent.
 
 Use it when the work is parallelizable, long-running, or very large.`;
 
@@ -489,4 +489,23 @@ export function spawnToolNames(): string[] {
 /** `finder` -> `finder_spawn`, the tool name the parent model calls. */
 export function spawnToolName(name: string): string {
   return `${name}_spawn`;
+}
+
+/**
+ * The tool surface a caller may assume for the child, generated from the
+ * allowlist so prose can never drift from it. Working tools come first: the
+ * caller decides on work tools and already owns the agent_* orchestration
+ * plumbing itself.
+ */
+export function toolSurface(spec: Pick<AgentSpec, "name" | "tools">): string {
+  const working = spec.tools.filter((name) => !name.startsWith("agent_"));
+  const plumbing = spec.tools.filter((name) => name.startsWith("agent_"));
+  const listed = [...working, ...plumbing].join(", ");
+  // Read-only specs still carry bash, so a bare list would not make the
+  // boundary obvious; state it.
+  const writes = spec.tools.some((name) => name === "edit" || name === "write");
+  // A usage norm for the caller, not an allowlist guarantee: these specs
+  // carry bash, and read-only behavior is prompt-enforced.
+  const readOnlyNote = writes ? "" : " It is read-only: it does not modify files.";
+  return `${spec.name} has access to the following tools: ${listed}.${readOnlyNote}`;
 }

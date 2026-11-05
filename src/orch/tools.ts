@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ThreadManager } from "./manager.ts";
 import { createLiveThrottler } from "./live-throttle.ts";
-import { listAgentSpecs, spawnToolName } from "../agents/specs.ts";
+import { listAgentSpecs, spawnToolName, toolSurface } from "../agents/specs.ts";
 import type {
   AgentSpec,
   LiveToolCall,
@@ -201,13 +201,16 @@ const SpawnParams = Type.Object({
 });
 
 /**
- * The spawn description is the spec's own description plus the shared mechanics,
- * because there is no agent_types tool to discover capabilities at runtime.
+ * The spawn description is the spec's prose, the generated tool surface, and
+ * the shared mechanics, because there is no agent_types tool to discover
+ * capabilities at runtime.
  */
 function spawnDescription(spec: AgentSpec, toolName: string): string {
   return `${spec.description}
 
-Spawns a \`${spec.name}\` child. The child inherits its lexical parent's conversation at spawn time: a relative name resolves under the caller, a non-root caller may spawn only its immediate children, and only /root may nest /root/<name> under an existing thread, where the intermediate thread supplies the snapshot. An absolute single-segment /<name> from the main thread starts a fresh independent root with no inherited context. Foreground waits by default; wait:false runs detached, and on completion, failure or stop you get a message event, so do not poll. Optional timeoutMs (30000–300000) reports a status event if the child is still running; it is not stopped. For parallel work, spawn all independent siblings with wait:false before agent_wait. Existing paths are retained; resume them with agent_steer rather than ${toolName}.`;
+${toolSurface(spec)}
+
+Spawns a \`${spec.name}\` child. The child inherits its lexical parent's conversation at spawn time: a relative name resolves under the caller, a non-root caller may spawn only its immediate children, and only /root may nest /root/<name> under an existing thread, where the intermediate thread supplies the snapshot. It does not inherit the parent's tools; the child's toolset is fixed by its own spec. An absolute single-segment /<name> from the main thread starts a fresh independent root with no inherited context. Foreground waits by default; wait:false runs detached, and on completion, failure or stop you get a message event, so do not poll. Optional timeoutMs (30000–300000) reports a status event if the child is still running; it is not stopped. For parallel work, spawn all independent siblings with wait:false before agent_wait. Existing paths are retained; resume them with agent_steer rather than ${toolName}.`;
 }
 
 /**

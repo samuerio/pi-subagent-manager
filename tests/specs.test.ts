@@ -5,6 +5,7 @@ import {
   getAgentSpec,
   listAgentSpecs,
   spawnToolName,
+  toolSurface,
 } from "../src/agents/specs.ts";
 import { AGENT_SPEC_NAMES, AGENT_ROLES } from "../src/types.ts";
 import { agentTools } from "../src/orch/tools.ts";
@@ -23,6 +24,33 @@ test("the built-in roster is exactly the six documented agents", () => {
       // Names are exact allowlist entries, so a stray pattern would silently allow nothing.
       assert.match(tool, /^[a-z0-9_]+$/, `${spec.name}: ${tool}`);
     }
+  }
+});
+
+test("toolSurface lists the full allowlist, working tools first, and flags read-only specs", () => {
+  for (const spec of AGENT_SPECS) {
+    const surface = toolSurface(spec);
+    const listed = surface.match(/has access to the following tools: ([^.]+)/);
+    assert.ok(listed, spec.name);
+    // Work tools come first; the agent_* orchestration plumbing follows.
+    const workTools = spec.tools.filter((name) => !name.startsWith("agent_"));
+    const plumbing = spec.tools.filter((name) => name.startsWith("agent_"));
+    assert.deepEqual(listed[1].split(", "), [...workTools, ...plumbing], spec.name);
+    const writes = spec.tools.includes("edit") || spec.tools.includes("write");
+    assert.equal(
+      surface.includes("It is read-only: it does not modify files."),
+      !writes,
+      spec.name,
+    );
+  }
+});
+
+test("spawn tool descriptions carry the generated tool surface", () => {
+  const tools = agentTools(() => ({}) as any, "/root");
+  for (const spec of AGENT_SPECS) {
+    const tool = tools.find((entry) => entry.name === spawnToolName(spec.name));
+    assert.ok(tool, spec.name);
+    assert.ok(tool.description.includes(toolSurface(spec)), spec.name);
   }
 });
 
