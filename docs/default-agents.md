@@ -12,15 +12,16 @@ existing agent's history.
 
 | Agent       | Spawn tool        | Role        | Tool allowlist                                                               |
 | ----------- | ----------------- | ----------- | ---------------------------------------------------------------------------- |
-| `task`      | `task_spawn`      | `subagents` | read, write, edit, bash, grep, find, ls, progress/pause, delegation, control |
+| `task`      | `task_spawn`      | `subagents` | read, write, edit, bash, grep, find, ls, progress/pause                      |
 | `finder`    | `finder_spawn`    | `subagents` | read, bash, grep, find, ls, progress/pause                                   |
 | `oracle`    | `oracle_spawn`    | `oracle`    | read, bash, grep, find, ls, progress/pause                                   |
 | `librarian` | `librarian_spawn` | `subagents` | read, bash, grep, find, ls, progress/pause, plus its `librarian` skill       |
 | `simplifier` | `simplifier_spawn` | `subagents` | read, write, edit, bash, grep, find, ls, progress/pause                      |
 | `reviewer`  | `reviewer_spawn`  | `subagents` | read, bash, grep, find, ls, progress/pause                                   |
 
-- **`task`** does the work: implementation, refactoring, debugging, and any bounded job. It is the only
-  agent that can delegate, because only its allowlist contains the spawn verbs and the control tools.
+- **`task`** does the work: implementation, refactoring, debugging, and any bounded job. It searches
+  with its own `grep`/`find`/`bash` and writes the change itself. No built-in agent delegates: only
+  `/root` orchestrates, and a `task` child is the deepest level a spawn can reach.
 - **`finder`** searches. It returns file paths with line ranges instead of essays, and is designed for
   many parallel calls and a handful of turns.
 - **`oracle`** advises on design and architecture, plans implementations, and takes on hard

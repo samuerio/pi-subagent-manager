@@ -54,13 +54,12 @@ test("spawn tool descriptions carry the generated tool surface", () => {
   }
 });
 
-test("only the worker may delegate", () => {
+test("no agent delegates; every agent reports progress and pauses", () => {
   const spawnVerbs = AGENT_SPECS.map((spec) => spawnToolName(spec.name));
   for (const spec of AGENT_SPECS) {
     const spawns = spawnVerbs.filter((verb) => spec.tools.includes(verb));
-    if (spec.name === "task") assert.deepEqual(spawns, ["finder_spawn"]);
-    else assert.deepEqual(spawns, [], spec.name);
-    // Progress reporting is available to every agent, delegation controls only to the worker.
+    assert.deepEqual(spawns, [], spec.name);
+    // Progress reporting is available to every agent; nothing can spawn a descendant.
     for (const tool of ["agent_update", "agent_pause"])
       assert.ok(spec.tools.includes(tool), spec.name);
     for (const control of [
@@ -69,13 +68,8 @@ test("only the worker may delegate", () => {
       "agent_status",
       "agent_output",
       "agent_stop",
-    ]) {
-      assert.equal(
-        spec.tools.includes(control),
-        spec.name === "task",
-        `${spec.name}: ${control}`,
-      );
-    }
+    ])
+      assert.equal(spec.tools.includes(control), false, `${spec.name}: ${control}`);
   }
 });
 

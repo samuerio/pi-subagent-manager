@@ -26,15 +26,6 @@ import { type AgentSpec, type AgentSpecName } from "../types.ts";
 /** Tools every child may use to report progress and pause without handing back an answer. */
 const REPORT_TOOLS = ["agent_update", "agent_pause"] as const;
 
-/** Tools a child may use to observe and steer the descendants it was allowed to spawn. */
-const CONTROL_TOOLS = [
-  "agent_wait",
-  "agent_steer",
-  "agent_status",
-  "agent_output",
-  "agent_stop",
-] as const;
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** The only skill shipped with an agent; resolved once so the child gets a stable absolute path. */
 const LIBRARIAN_SKILL_DIR = path.join(
@@ -52,7 +43,7 @@ If you've already used the Read tool to read an entire file, do NOT invoke Read 
 
 If AGENTS.md exists, treat it as ground truth for commands, style, structure. If you discover a recurring command that's missing, ask to append it there.
 
-For any coding task that involves thoroughly searching or understanding the codebase, use the finder_spawn tool to intelligently locate relevant code, functions, or patterns. This helps in understanding existing implementations, locating dependencies, and finding similar code before making changes.`;
+You have no subagents; do the work yourself.`;
 
 export const TASK_DESCRIPTION = `Perform a task (a sub-task of the user's overall task) using a sub-agent.
 
@@ -376,8 +367,6 @@ export const AGENT_SPECS: readonly AgentSpec[] = [
     icon: "\u{f121}",
     tools: [
       ...REPORT_TOOLS,
-      ...CONTROL_TOOLS,
-      "finder_spawn",
       "read",
       "write",
       "edit",

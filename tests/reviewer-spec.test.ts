@@ -62,8 +62,8 @@ test("the reviewer may read and report but never write or delegate", () => {
       false,
       spec.name,
     );
-  // Only the worker keeps a delegation surface, and only the finder verb.
-  assert.ok(getAgentSpec("task").tools.includes("finder_spawn"));
+  // The roster is flat: no built-in agent delegates, so only /root orchestrates.
+  assert.equal(getAgentSpec("task").tools.includes("finder_spawn"), false);
   assert.equal(getAgentSpec("task").tools.includes("reviewer_spawn"), false);
   assert.ok(spawnTools.some((tool) => tool.name === "reviewer_spawn"));
 });
