@@ -35,6 +35,14 @@ const LIBRARIAN_SKILL_DIR = path.join(
   "librarian",
 );
 
+/** Browser automation for end-to-end tests; shipped beside the spec so it travels with the package. */
+const PLAYWRIGHT_CLI_SKILL_DIR = path.join(
+  __dirname,
+  "task",
+  "skills",
+  "playwright-cli",
+);
+
 const TASK_SYSTEM_PROMPT = `You are pi, a powerful AI coding agent.
 
 When invoking the Read tool, ALWAYS use absolute paths.
@@ -375,7 +383,7 @@ export const AGENT_SPECS: readonly AgentSpec[] = [
       "find",
       "ls",
     ],
-    skills: [],
+    skills: [PLAYWRIGHT_CLI_SKILL_DIR],
   },
   {
     name: "finder",

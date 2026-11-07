@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import * as path from "node:path";
 import { test } from "node:test";
 import {
   AGENT_SPECS,
@@ -89,13 +90,14 @@ test("no agent carries a model; routing is a role name", () => {
   assert.equal(getAgentSpec("oracle").role, "oracle");
 });
 
-test("the librarian ships its own skill and no other agent has skills", () => {
+test("only the librarian and the worker ship agent-specific skills", () => {
   const withSkills = AGENT_SPECS.filter((spec) => spec.skills.length > 0);
+  assert.deepEqual(withSkills.map((spec) => spec.name), ["task", "librarian"]);
   assert.deepEqual(
-    withSkills.map((spec) => spec.name),
-    ["librarian"],
+    getAgentSpec("task").skills.map((dir) => path.basename(dir)),
+    ["playwright-cli"],
   );
-  assert.match(withSkills[0]!.skills[0]!, /skills\/librarian$/);
+  assert.match(getAgentSpec("librarian").skills[0]!, /skills\/librarian$/);
 });
 
 test("each agent registers one spawn tool with no type parameter", () => {
