@@ -68,9 +68,14 @@ function getLockPathForFile(filePath: string): string {
   return `${filePath}.lock`;
 }
 
-/** Cross-process exclusive lock. A lock whose recorded holder process is dead is broken immediately (kill(pid, 0) liveness); one that cannot be verified falls back to STALE_LOCK_MS (5 minutes), so a slow but alive writer is never evicted. */
-/** Generous fallback for breaking a lock whose holder cannot be verified. */
+/**
+ * Cross-process exclusive lock. A lock whose recorded holder process is provably
+ * dead is broken immediately (kill(pid, 0) liveness); one that cannot be verified
+ * waits out this age, so a slow but alive writer is never evicted.
+ */
 const STALE_LOCK_MS = 5 * 60_000;
+/** Grace for a just-created lock whose holder has not written its pid yet. */
+const MALFORMED_LOCK_GRACE_MS = 1_000;
 
 /** Read the lock file raw; null when unreadable or gone. */
 async function readLockRaw(lockPath: string): Promise<string | null> {
@@ -106,10 +111,10 @@ async function breakStaleLock(lockPath: string): Promise<boolean> {
   const raw = await readLockRaw(lockPath);
   if (raw === null) return false;
   // A half-written or empty lock (crash between create and write, torn read)
-  // must not throw past the retry/timeout loop. A live holder writes valid
-  // JSON microseconds after acquiring, so content that stays malformed across
-  // a re-read means the holder died before writing: break immediately. Valid
-  // JSON without a pid still waits out the age threshold.
+  // must not throw past the retry/timeout loop. The holder writes its pid as a
+  // second step, so malformed content may belong to a live holder mid-acquire:
+  // wait out the short grace before breaking it. Valid JSON without a pid waits
+  // out the full age threshold.
   let pid: unknown;
   let malformed = false;
   try {
@@ -119,9 +124,14 @@ async function breakStaleLock(lockPath: string): Promise<boolean> {
   }
   const holder = lockHolderAlive(pid);
   if (holder === true) return false;
-  if (!malformed && holder === null) {
+  if (holder === null) {
     const st = await fsp.stat(lockPath).catch(() => undefined);
-    if (!st || Date.now() - st.mtimeMs <= STALE_LOCK_MS) return false;
+    if (!st) return false;
+    const age = Date.now() - st.mtimeMs;
+    // A live holder writes the pid right after creating the lock; breaking an
+    // empty lock immediately would let a second writer in during that window.
+    if (age <= (malformed ? MALFORMED_LOCK_GRACE_MS : STALE_LOCK_MS))
+      return false;
   }
   // The content we judged stale must still be the file's content; otherwise
   // another waiter already broke and re-acquired it.
@@ -246,11 +256,7 @@ export function ensureDefaultModeEntries(
   }
   // "custom" is an overlay mode; never a valid persisted current mode.
   if (file.currentMode === CUSTOM_MODE_NAME) file.currentMode = "";
-  if (
-    !file.currentMode ||
-    !(file.currentMode in file.modes) ||
-    file.currentMode === CUSTOM_MODE_NAME
-  ) {
+  if (!file.currentMode || !(file.currentMode in file.modes)) {
     const first = Object.keys(file.modes).find(
       (name) => name !== CUSTOM_MODE_NAME,
     );

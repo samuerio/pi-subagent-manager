@@ -1,4 +1,4 @@
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 /**
  * Top-border decoration ported from the dotfiles PromptEditor: render the
@@ -10,7 +10,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 export interface EditorLabelInput {
   lines: string[];
   width: number;
-  /** Mode label text (already formatted; rendered as-is). */
+  /** Mode label text (already formatted; terminal control sequences are stripped). */
   label: string;
   /** Bash (`!`) mode adds a ` bash` marker next to the label. */
   bashMode: boolean;
@@ -36,7 +36,12 @@ function cutToDisplayWidth(text: string, width: number): string {
 }
 
 export function decorateEditorTopBorder(input: EditorLabelInput): string[] {
-  const { lines, width, label, bashMode, borderColor, labelColor } = input;
+  const { lines, width, bashMode, borderColor, labelColor } = input;
+  // Mode names come from modes.json, which may be edited by hand or by an agent.
+  const label = stripTerminalSequences(input.label).replace(
+    /[\x00-\x1f\x7f-\x9f]/g,
+    " ",
+  );
   const topPlain = stripAnsi(lines[0] ?? "");
 
   // If the editor is scrolled, the built-in editor renders a scroll indicator
@@ -91,7 +96,12 @@ export function decorateEditorTopBorder(input: EditorLabelInput): string[] {
         remainingLen -= visibleWidth(part.text);
       }
     }
-    labelLen = maxLabelLen;
+    // Recompute: a wide glyph that did not fit leaves the visible label shorter
+    // than maxLabelLen, and over-reserving narrows the top border.
+    labelLen = labelParts.reduce(
+      (sum, part) => sum + visibleWidth(part.text),
+      0,
+    );
   }
 
   const labelChunkLen =

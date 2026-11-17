@@ -22,7 +22,7 @@ import {
   DialogMenu,
   DialogSession,
   DialogTextView,
-  PAGER_DIAL_OG_OPTIONS,
+  PAGER_DIALOG_OPTIONS,
   dialogHeight,
   dialogInput,
   dialogTextView,
@@ -423,7 +423,7 @@ test("dialogTextView mounts the pager as a custom overlay", async () => {
   assert.equal(body(rendered)[0], "line 0");
   assert.match(footerOf(rendered), /Lines 1-20\/40/);
   // The pager's frame fills the terminal, so the overlay must not re-clamp it.
-  assert.deepEqual(options[0], PAGER_DIAL_OG_OPTIONS, "pager mounts with its own overlay options");
+  assert.deepEqual(options[0], PAGER_DIALOG_OPTIONS, "pager mounts with its own overlay options");
 });
 
 test("text view renders markdown with the shared theme and keeps scroll bounds", () => {

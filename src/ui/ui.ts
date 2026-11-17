@@ -25,6 +25,13 @@ export function sanitizeText(text: string): string {
   return stripTerminalSequences(text).replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
 }
 
+/** Terminal-safe text that keeps line breaks, for multi-line reports and Markdown. */
+export function sanitizeBlock(text: string): string {
+  return stripTerminalSequences(text)
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
+}
+
 type AgentBadgeTheme = Pick<Theme, "fg" | "colors" | "style">;
 
 /** Selected type token, or accent when unset or unknown. Shared by the pill and path. */

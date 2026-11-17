@@ -24,7 +24,7 @@ pi install npm:pi-subagent-manager
 
 Ask pi to delegate in plain language:
 
-> Have an oracle review my last commit while a finder looks up how this repo handles retries.
+> Have a reviewer check my last commit while a finder looks up how this repo handles retries.
 
 Or start an agent yourself:
 
@@ -42,7 +42,7 @@ The **Agents** widget above the input shows what's running. Open `/agents tree`,
 | ----------- | ------------------ | ------------------------------------------------------- |
 | `task`      | `task_spawn`       | Implementation, debugging, and any delegatable work     |
 | `finder`    | `finder_spawn`     | Codebase search: behavior, call sites, patterns         |
-| `oracle`    | `oracle_spawn`     | Review, planning, architecture, deep reasoning          |
+| `oracle`    | `oracle_spawn`     | Planning, architecture, diagnosis, deep reasoning       |
 | `librarian` | `librarian_spawn`  | Understanding repositories outside this workspace       |
 | `simplifier` | `simplifier_spawn` | Polishing recent changes in place, behavior unchanged    |
 | `reviewer`  | `reviewer_spawn`   | Reviewing a change with prioritized findings and verdict |
@@ -54,7 +54,7 @@ agent's prompt, tool allowlist, skills, color, or icon. Models are not configure
 
 ## Settings and safety
 
-Open `/agents` to change delegation mode, limits, and display settings; save with **Ctrl+S**. Experimental options are marked **[labs]** in their help. **[lab] Subagent extensions** opens a per-extension chooser (Space/Enter toggles, Esc returns); **Save and apply** persists the selection for new subagent sessions. It lists auto-discovered `.ts`/`.js` files and subdirectory entry points in Pi’s agent-dir `extensions/` (honoring `PI_CODING_AGENT_DIR`), trusted project `.pi/extensions/`, and configured/package files—not CLI-only/inline/built-in extensions; see [limitations](docs/subagent-extension-limitations.md).
+Open `/agents` to change delegation mode, limits, and display settings; save with **Ctrl+S**. Experimental options carry a literal **[lab]** prefix in the settings menu. **[lab] Subagent extensions** opens a per-extension chooser (Space/Enter toggles, Esc returns); **Save and apply** persists the selection for new subagent sessions. It lists auto-discovered `.ts`/`.js` files and subdirectory entry points in Pi’s agent-dir `extensions/` (honoring `PI_CODING_AGENT_DIR`), trusted project `.pi/extensions/`, and configured/package files—not CLI-only/inline/built-in extensions; see [limitations](docs/subagent-extension-limitations.md).
 
 Agents share your working directory and OS permissions: **tool policies are not a sandbox**. Don't run multiple subagent extensions together — they clash on `/agents`.
 

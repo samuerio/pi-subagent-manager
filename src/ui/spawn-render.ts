@@ -13,7 +13,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { LiveToolCall, SpawnLiveDetails, ThreadView } from "../types.ts";
 import { OUTPUT_PAGE_CHARS, truncationNote } from "../types.ts";
 import { modelLabel } from "./thread-tree.ts";
-import { sanitizeText, threadMetrics } from "./ui.ts";
+import { sanitizeBlock, sanitizeText, threadMetrics } from "./ui.ts";
 
 /**
  * Shared display layer for the spawn verbs. Everything here is pure
@@ -78,7 +78,7 @@ export function spawnCollapsedText(
   thread: ThreadView,
   detached = false,
 ): string {
-  return `${thread.state}${stateBadge(detached)}  ${modelLabel(thread)}  ${threadMetrics(thread)}`;
+  return `${thread.state}${stateBadge(detached)}  ${sanitizeText(modelLabel(thread))}  ${threadMetrics(thread)}`;
 }
 /**
  * Collapsed live block, activity first and status last (the same order as the
@@ -99,7 +99,7 @@ export function liveCollapsedLines(
 
 function statusLine(thread: ThreadView, detached = false): string {
   const model = thread.model
-    ? `${thread.model}${thread.thinkingLevel ? `:${thread.thinkingLevel}` : ""}`
+    ? `${sanitizeText(thread.model)}${thread.thinkingLevel ? `:${thread.thinkingLevel}` : ""}`
     : "model pending";
   return `${thread.state}${stateBadge(detached)} · ${model} · ${threadMetrics(thread)}`;
 }
@@ -337,8 +337,12 @@ export function settledThreadView(
   const container = new Container();
   // Breathing room between the call line above and the report body.
   container.addChild(new Spacer(1));
-  const task = thread.task?.trim();
-  const output = thread.error ?? thread.output;
+  // Child-authored: the task and answer are text the parent model produced, so
+  // strip terminal commands before Text/Markdown pass them to the terminal.
+  const rawTask = thread.task?.trim();
+  const task = rawTask ? sanitizeBlock(rawTask) : undefined;
+  const rawOutput = thread.error ?? thread.output;
+  const output = rawOutput === undefined ? undefined : sanitizeBlock(rawOutput);
   if (task) container.addChild(new Text(theme.fg("muted", task), 0, 0));
   if (task && output?.trim()) {
     // The rule takes the spacer's slot: task/answer stay separated at any scroll

@@ -11,7 +11,6 @@ import {
   cloneRoles,
   CUSTOM_MODE_NAME,
   orderedModeNames,
-  type ModeRoles,
   type ModeSpec,
   type ModesFile,
   type RolePin,
@@ -35,8 +34,6 @@ import { registerModesUi } from "./ui.ts";
  * editor takeover: the navigation editor owns the editor slot; this controller
  * only manages modes, exposes border/label hooks and feeds prompt history.
  */
-
-export type SelectionSpec = { roles?: ModeRoles };
 
 export class ModesController {
   data: ModesFile = { version: 1, currentMode: "default", modes: {} };
@@ -143,52 +140,63 @@ export class ModesController {
       includeCurrentMode,
     );
     if (!patch) return true;
-    return withFileLock(this.filePath, async () => {
-      // Never rewrite a file we cannot parse: the operator may have hand-edited
-      // it; silently replacing it with defaults would destroy their config.
-      // Read it raw first and bail out, leaving the file untouched.
-      const snapshot = await readModesSnapshot(this.filePath);
-      if (snapshot.status === "unreadable") {
-        // Present but not ours to read: rewriting it from defaults would
-        // destroy configuration we never saw.
-        this.notify(
-          ctx,
-          `modes.json exists but cannot be read (${this.filePath}); refusing to overwrite it. Check the file permissions, then retry.`,
-          "warning",
-        );
-        return false;
-      }
-      if (snapshot.status === "ok" && snapshot.parsed === null) {
-        this.notify(
-          ctx,
-          `modes.json is not valid JSON; refusing to overwrite ${this.filePath}. Fix or remove the file, then retry.`,
-          "warning",
-        );
-        return false;
-      }
-      if (snapshot.parsed) {
-        const unknown = unknownModesFields(snapshot.parsed);
-        if (unknown.length > 0) {
+    try {
+      return await withFileLock(this.filePath, async () => {
+        // Never rewrite a file we cannot parse: the operator may have hand-edited
+        // it; silently replacing it with defaults would destroy their config.
+        // Read it raw first and bail out, leaving the file untouched.
+        const snapshot = await readModesSnapshot(this.filePath);
+        if (snapshot.status === "unreadable") {
+          // Present but not ours to read: rewriting it from defaults would
+          // destroy configuration we never saw.
           this.notify(
             ctx,
-            `modes.json contains unrecognized field(s): ${unknown.join(", ")}. They are not part of the schema and will be dropped on save.`,
+            `modes.json exists but cannot be read (${this.filePath}); refusing to overwrite it. Check the file permissions, then retry.`,
             "warning",
           );
+          return false;
         }
-      }
-      // Merge our local patch into the latest on disk to avoid clobbering other agents.
-      const latest = await loadModesFile(
-        this.filePath,
-        this.createDefaultModes(ctx),
+        if (snapshot.status === "ok" && snapshot.parsed === null) {
+          this.notify(
+            ctx,
+            `modes.json is not valid JSON; refusing to overwrite ${this.filePath}. Fix or remove the file, then retry.`,
+            "warning",
+          );
+          return false;
+        }
+        if (snapshot.parsed) {
+          const unknown = unknownModesFields(snapshot.parsed);
+          if (unknown.length > 0) {
+            this.notify(
+              ctx,
+              `modes.json contains unrecognized field(s): ${unknown.join(", ")}. They are not part of the schema and will be dropped on save.`,
+              "warning",
+            );
+          }
+        }
+        // Merge our local patch into the latest on disk to avoid clobbering other agents.
+        const latest = await loadModesFile(
+          this.filePath,
+          this.createDefaultModes(ctx),
+        );
+        applyModesPatch(latest, patch);
+        ensureDefaultModeEntries(latest, this.createDefaultModes(ctx));
+        await saveModesFile(this.filePath, latest);
+        this.data = latest;
+        this.baseline = cloneModesFile(latest);
+        this.fileMtimeMs = await getMtimeMs(this.filePath);
+        return true;
+      });
+    } catch (error) {
+      // Callers report "in memory only"; an unhandled throw would instead escape
+      // the /mode command with no message at all.
+      this.notify(
+        ctx,
+        `Could not save modes.json: ${error instanceof Error ? error.message : String(error)}`,
+        "error",
       );
-      applyModesPatch(latest, patch);
-      ensureDefaultModeEntries(latest, this.createDefaultModes(ctx));
-      await saveModesFile(this.filePath, latest);
-      this.data = latest;
-      this.baseline = cloneModesFile(latest);
-      this.fileMtimeMs = await getMtimeMs(this.filePath);
-      return true;
-    });
+      return false;
+    }
   }
 
   createDefaultModes(ctx: ExtensionContext): ModesFile {

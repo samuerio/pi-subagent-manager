@@ -2,7 +2,7 @@
 
 A detached spawn (`wait: false`) returns while its agent is still working. Completion and reporting timeouts are separate signals: finishing cancels the agent's reporting timer, then reevaluates whether the main agent should run. It never waits for that timer to expire.
 
-With [Final Recap](settings.md#labs-final-recap-finalrecap) enabled, completed, failed, and stopped detached agents contribute to a pending completion batch. The batch becomes ready when **no detached agent is starting or running**, including nested descendants. Without Final Recap, detached settlements request ordinary wakes instead of waiting for a batch. Progress alone does not request a turn; foreground results do not request an extra completion turn. A detached pause requests an ordinary wake, not a final-result recap.
+With [Final Recap](settings.md#lab-final-recap-finalrecap) enabled, completed, failed, and stopped detached agents contribute to a pending completion batch. The batch becomes ready when **no detached agent is starting or running**, including nested descendants. Without Final Recap, detached settlements request ordinary wakes instead of waiting for a batch. Progress alone does not request a turn; foreground results do not request an extra completion turn. A detached pause requests an ordinary wake, not a final-result recap.
 
 The scheduler knows whether a batch is ready—not whether the user's task is finished. Both kinds of trigger tell the main agent to collect results and continue unfinished work, or give a final recap if the overall task is complete.
 

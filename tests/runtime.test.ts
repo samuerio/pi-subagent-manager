@@ -1237,3 +1237,32 @@ test("isolated real SDK driver without credentials", async (t) => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("a session-less parent is rejected with an actionable message", async () => {
+  // --no-session leaves the session directory empty; a bare mkdir("") ENOENT
+  // would otherwise be the only explanation the user gets.
+  const factory = createDriverFactory(
+    () =>
+      ({
+        sessionManager: {
+          getSessionId: () => "rootid",
+          getSessionDir: () => "",
+        },
+      }) as unknown as ExtensionContext,
+    () => ({ tools: [], activeNames: [] }),
+    () => false,
+  );
+  await assert.rejects(
+    factory({
+      path: "/root/child",
+      parentPath: "/root",
+      type: testSpec("worker", { systemPrompt: "worker", tools: [] }),
+      inherited: [],
+      tools: [],
+      onEvent: () => {},
+      shouldPause: () => false,
+      signal: new AbortController().signal,
+    }),
+    /without --no-session/,
+  );
+});

@@ -14,10 +14,10 @@ Use a reasoning-capable, tool-reliable model with good code reading, multi-hop r
 
 Historical evidence at inspected revision `af8424dc621fa38f61058e2e0afa19ab449d084b` (before parent-tool bridging):
 
-- [`src/runtime.ts:299-303`](../src/runtime.ts) selects from built-ins and `options.tools`; [`src/index.ts:230`](../src/index.ts) supplies only subagent-manager tools through `toolsFor`.
-- [`src/runtime.ts:311-319`](../src/runtime.ts) sets `noExtensions`, `noSkills`, `noPromptTemplates`, `noContextFiles`, and `noThemes` to true. The parent’s Context7/Exa/Parallel/Perplexity MCP or web extensions are **not inherited**.
-- [`src/runtime.ts:339-343`](../src/runtime.ts) blocks unallowed tool calls; [`src/runtime.ts:350-362`](../src/runtime.ts) passes only selected tools to the SDK session.
-- [`src/config.ts:257-269`](../src/config.ts) validates exact tool names and throws for unavailable names. Adding imagined MCP names to the frontmatter will not enable them and can break spawning.
+- `src/runtime.ts:299-303` selects from built-ins and `options.tools`; [`src/index.ts:230`](../src/index.ts) supplies only subagent-manager tools through `toolsFor`.
+- `src/runtime.ts:311-319` sets `noExtensions`, `noSkills`, `noPromptTemplates`, `noContextFiles`, and `noThemes` to true. The parent’s Context7/Exa/Parallel/Perplexity MCP or web extensions are **not inherited**.
+- `src/runtime.ts:339-343` blocks unallowed tool calls; `src/runtime.ts:350-362` passes only selected tools to the SDK session.
+- `src/config.ts:257-269` validates exact tool names and throws for unavailable names. Adding imagined MCP names to the frontmatter will not enable them and can break spawning. (`config.ts` and file-based agent configuration no longer exist; this bullet is historical.)
 
 Current parent-tool bridging includes registered non-hidden main-session tools in the child inventory, subject to exact-name Tool Filtering policies. Permitted MCP/web tools can therefore be selected by a custom allowlist or broader mode; deferred/codemode tools use child-local codemode discovery. External execution reuses main-session resources/context rather than loading fresh extensions or MCP connections, and the parent's policy still applies to bridged callable tools. Skills and project context files are not automatically loaded.
 

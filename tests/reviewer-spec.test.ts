@@ -150,7 +150,6 @@ test("the procedure resolves diffs without inventing them", () => {
   assert.match(prompt, /never use `git diff <base>`/);
   // The four-step merge-base recipe replaced the fallback chain.
   assert.match(prompt, /agent_pause` and ask for the correct base/);
-  assert.match(prompt, /agent_pause` and ask for the correct base/);
   // The fallback runs against a possibly-stale local base; disclosed, not hidden.
   assert.match(
     prompt,

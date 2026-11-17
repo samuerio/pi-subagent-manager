@@ -102,15 +102,15 @@ prompt-enforced), keeps its whole report in its final message, and opens that me
 asks rather than guessing.
 See [built-in agents](default-agents.md#the-six-agents) for the rubric behind it.
 
-Child progress and completion notifications are retained in the main agent's context without adding visible chat messages. When a detached (`wait: false`) agent completes, fails or is stopped, the main agent receives a message event that starts a new turn if it is idle (or right after its current turn settles), so it never has to poll. Progress updates and foreground results do not start a turn. The opt-in **[labs] Final Recap** setting changes this: completion messages for async agents are recorded without waking the main agent, and once **all outstanding async agents have reported**, one recap turn summarizes them. Enabling it uses more tokens and context. Use the Agents widget, `/agents tree`, or `agent_output` to inspect child status and answers. With the opt-in **[labs] Housekeeping model**, `/agents tree` shows a model-written one-line summary of each running agent's current work in place of its raw tool-call line (see [settings](settings.md#labs-housekeeping-model-housekeepingenabled-housekeepingmodel)).
+Child progress and completion notifications are retained in the main agent's context without adding visible chat messages. When a detached (`wait: false`) agent completes, fails or is stopped, the main agent receives a message event that starts a new turn if it is idle (or right after its current turn settles), so it never has to poll. Progress updates and foreground results do not start a turn. The opt-in **[lab] Final Recap** setting changes this: completion messages for async agents are recorded without waking the main agent, and once **all outstanding async agents have reported**, one recap turn summarizes them. Enabling it uses more tokens and context. Use the Agents widget, `/agents tree`, or `agent_output` to inspect child status and answers. With the opt-in **[lab] Housekeeping model**, `/agents tree` shows a model-written one-line summary of each running agent's current work in place of its raw tool-call line (see [settings](settings.md#lab-housekeeping-model-housekeepingenabled-housekeepingmodel)).
 
 A spawn tool accepts an optional `timeoutMs` (30000–300000, i.e. 30s–5min; out-of-range values are rejected; no timeout when omitted). If the child is still running when it elapses, the parent receives an event (always waking an idle main agent, even in recap mode) with the child's state, status, elapsed time, tokens and recent output. The child is **not** stopped; the parent decides to wait, steer or stop it. The timer is cleared when the child completes, fails, stops or is cancelled, and on session shutdown. It is not re-armed when a child is later resumed with `agent_steer`. `agent_steer` also accepts `timeoutMs` (same 30s–5min range) and `message` is then optional: `timeoutMs` alone only re-arms a running child's timer from now (no steering or resume; error if the child is not running), e.g. after a timeout event shows it is still progressing; with both, the child is steered/resumed and the timer re-armed. At least one of the two is required.
 
 ## Parallel and nested work
 
 - Launch **all independent siblings with `wait: false`, then wait**. Spawning one foreground child and waiting before the next is sequential.
-- Nesting works the same way: `/root` launches `team-a` and `team-b`; each launches its own workers.
-- Only `task` delegates among the built-in agents. Delegation is a spec allowlist entry, so changing it means editing `src/agents/specs.ts`.
+- Nesting is depth, not delegation: `/root` spawns `/root/team-a` and `/root/team-b`, then `/root/team-a/worker` (the intermediate thread must already exist).
+- No built-in agent delegates. Delegation would be a `*_spawn` allowlist entry in `src/agents/specs.ts`; only `/root` spawns today.
 - Limits are shared across the tree — see [settings](settings.md#max-levels-maxlevels).
 
 ## Commands
@@ -140,7 +140,7 @@ Both `fork:` and `fresh:` autocomplete every built-in agent (`task`, `finder`, `
 | Esc         | Watcher → saved tree → Main                       |
 | Ctrl+Q      | Return directly to Main                           |
 
-Refreshes every second and keeps your selection, collapse state and scroll position.
+Refreshes every second when nothing is live, and every 180 ms while an agent is starting or running (loader animation). Selection, collapse state and scroll position are kept.
 
 ### Live agent navigation
 
@@ -175,12 +175,12 @@ Once the main turn has ended and no subagents are starting or running, either mo
 
 In full mode:
 
-- One row per agent: colored type pill, path, state, task, active time, input `↑` / output `↓` tokens. With **[labs] Housekeeping model** enabled, a nonblank summary replaces the task while the agent is starting/running; otherwise the task remains.
+- One row per agent: colored type pill, path, state, task, active time, input `↑` / output `↓` tokens. With **[lab] Housekeeping model** enabled, a nonblank summary replaces the task while the agent is starting/running; otherwise the task remains.
 - Activity and lifecycle messages (such as `Completed; session retained`) are omitted to save space; detailed status remains available in `/agents tree` and `agent_status`.
 - Agents are ordered newest-started first (spawn or resume); a branch ranks by its most recently started agent. The most recently started agents are preferred when previews overflow. Overflow is counted, not listed.
 - Time freezes while paused and resumes on continue.
 - A small status strip below the previews shows the running count (including starting agents) and **Press ← to open subagent browser**, including when agents overflow. The full footer also shows **→ collapse**. Minimal mode keeps **← browser** inline so it stays one line (**← expand** when it is a session collapse of full). Browser hints appear only while subagents are starting or running; RPC output omits keyboard hints.
-- With **[labs] Nerd Font icons** enabled, the selected Circle, Braille, or Hourglass loader appears before the preserved role icon in the widget and fullscreen tree/live-view headers. Each family provides completed, paused, failed, and stopped state icons. The minimal summary uses the same indicators for its status counts. Preview all families and states under **[labs] Loader style**. Animation timers stop on settlement or disposal; RPC output stays static.
+- With **[lab] Nerd Font icons** enabled, the selected Circle, Braille, or Hourglass loader appears before the preserved role icon in the widget and fullscreen tree/live-view headers. Each family provides completed, paused, failed, and stopped state icons. The minimal summary uses the same indicators for its status counts. Preview all families and states under **[lab] Loader style**. Animation timers stop on settlement or disposal; RPC output stays static.
 
 ### Interrupts and stopping agents
 

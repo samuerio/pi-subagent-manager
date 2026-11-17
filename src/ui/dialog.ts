@@ -56,7 +56,7 @@ export const DIALOG_OPTIONS = {
  * so the overlay must hand it the whole surface (no 90% clamp, no margin)
  * or the bottom chrome gets sliced. Sibling dialogs keep DIALOG_OPTIONS.
  */
-export const PAGER_DIAL_OG_OPTIONS = {
+export const PAGER_DIALOG_OPTIONS = {
   overlay: true,
   overlayOptions: {
     anchor: "center",
@@ -299,7 +299,7 @@ export function dialogTextView(
 ): Promise<void> {
   return ctx.ui.custom(
     (host, theme, _keys, done) => new DialogTextView(host, theme, title, text, markdown, done),
-    PAGER_DIAL_OG_OPTIONS,
+    PAGER_DIALOG_OPTIONS,
   );
 }
 

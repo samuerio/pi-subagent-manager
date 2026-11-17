@@ -41,10 +41,6 @@ export function costIconGlyph(icon: CostIcon, nerdFontIcons: boolean): string {
   return glyphs[icon][nerdFontIcons ? "nerd" : "emoji"];
 }
 
-export function formatSubagentCost(cost: number, nerdFontIcons: boolean): string {
-  return `${nerdFontIcons ? COST_ICON + " " : ""}$${cost.toFixed(4)}`;
-}
-
 /** Any extension-owned /footer takes priority; never infer activity from installed packages alone. */
 export function hasExternalFooter(pi: Pick<ExtensionAPI, "getCommands">): boolean {
   return pi
@@ -142,19 +138,21 @@ export function installCostFooter(
   ctx.ui.setFooter((tui, theme, footerData) => {
     requestRender = () => tui.requestRender();
     const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
-    let entryCount = -1;
+    // Keyed by the last entry id, not just the count: session-tree navigation can
+    // switch to a sibling branch with the same length but different usage.
+    let entryKey = "";
     let totals = footerUsage([]);
     return {
       dispose: unsubscribe,
       invalidate() {
-        entryCount = -1;
+        entryKey = "";
       },
       render(width: number) {
         const entries = ctx.sessionManager.getEntries();
-        const count = entries.length;
-        if (count !== entryCount) {
+        const key = `${entries.length}:${entries.at(-1)?.id ?? ""}`;
+        if (key !== entryKey) {
           totals = footerUsage(entries);
-          entryCount = count;
+          entryKey = key;
         }
         const branch = footerData.getGitBranch();
         const name = ctx.sessionManager.getSessionName();

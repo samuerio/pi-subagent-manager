@@ -77,6 +77,20 @@ test(
           !("assistantPreview" in final),
           "live fields never leak into the settled result",
         );
+        assert.ok(
+          partials.length > 0,
+          "a foreground spawn streams at least one live update",
+        );
+        assert.ok(
+          partials.some(
+            (partial) =>
+              partial.state === "starting" ||
+              partial.state === "running" ||
+              (partial.recentCalls?.length ?? 0) > 0 ||
+              partial.assistantPreview !== undefined,
+          ),
+          "live updates describe in-flight work",
+        );
         for (const partial of partials) {
           assert.equal(partial.path, "/root/worker");
           assert.ok(typeof partial.elapsedMs === "number");

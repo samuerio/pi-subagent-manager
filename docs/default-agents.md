@@ -28,8 +28,8 @@ existing agent's history.
   many parallel calls and a handful of turns.
 - **`oracle`** advises on design and architecture, plans implementations, and takes on hard
   reasoning and diagnosis questions. Findings-based reviews of a change (diff or snapshot) belong
-  to `reviewer_spawn`; `oracle` does not edit files and does not search on its own (spawn a
-  `finder` for that).
+  to `reviewer_spawn`; `oracle` does not edit files. It can read and search with its own
+  `read`/`grep`/`find`/`bash`, but hands exhaustive codebase sweeps to `finder_spawn`.
 - **`librarian`** understands repositories outside the workspace, locally or by cloning through its
   skill's `checkout.sh`.
 - **`simplifier`** polishes a change in place: behavior stays exact, clarity and consistency improve,
@@ -67,15 +67,16 @@ easier to review than a cascade of `.md` and `.yml` layers. Practical changes:
 - **Different prompt or tools:** edit that spec's `systemPrompt` and `tools` arrays.
 - **Fewer/more delegation rights:** add or remove `*_spawn` and `agent_*` entries from `tools`.
   Names are matched exactly; an unavailable name is ignored rather than fatal.
-- **New agent:** add an entry, pick a `role`, and it registers as `<name>_spawn` at load time. Keep
-  `src/types.ts` `AGENT_SPEC_NAMES` in sync if you want `/agents` completion and prompt guidance to
-  advertise it.
+- **New agent:** add an entry, pick a `role`, and it registers as `<name>_spawn` at load time;
+  `/agents` completion and prompt guidance are generated from the table. Keep `src/types.ts`
+  `AGENT_SPEC_NAMES` in sync for the `AgentSpecName` type and the roster test in
+  `tests/specs.test.ts`.
 - **Different model per agent:** put the agent in its own role in `modes.json` instead of reusing
   `subagents`.
 
 ## Nerd Font icons
 
-The optional **[labs] Nerd Font icons** [setting](settings.md#labs-nerd-font-icons-nerdfonticons) is off
+The optional **[lab] Nerd Font icons** [setting](settings.md#lab-nerd-font-icons-nerdfonticons) is off
 by default and requires a Nerd Font in your terminal. Each spec carries a literal glyph:
 
 | Agent       | Nerd Fonts identifier | Codepoint |

@@ -2,7 +2,7 @@
 
 **[lab] Subagent extensions** (`subagentExtensions`) is experimental and **none selected by default**. It reloads selected auto-discovered/configured extension files into separate subagent sessions. Bugs and unintended consequences are possible; enable it only when your extensions are safe to run in multiple sessions.
 
-See [the setting and how to enable it](settings.md#labs-subagent-extensions-subagentextensions).
+See [the setting and how to enable it](settings.md#lab-subagent-extensions-subagentextensions).
 
 ## Not an exact copy of the main agent's extensions
 

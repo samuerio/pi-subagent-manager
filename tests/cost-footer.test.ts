@@ -9,7 +9,6 @@ import {
   COST_WIDGET_ID,
   CostFooterController,
   costIconGlyph,
-  formatSubagentCost,
   footerUsage,
   hasExternalFooter,
   installCostFooter,
@@ -198,8 +197,6 @@ test("prompt/skill named footer cannot claim the footer; loaded extension comman
   assert.equal(hasExternalFooter(pi("prompt")), false);
   assert.equal(hasExternalFooter(pi("skill")), false);
   assert.equal(hasExternalFooter(pi("extension")), true);
-  assert.equal(formatSubagentCost(0.012345, false), "$0.0123");
-  assert.equal(formatSubagentCost(0.012345, true), COST_ICON + " $0.0123");
 });
 
 test("an external footer taking ownership is never cleared by a previous fallback owner", () => {

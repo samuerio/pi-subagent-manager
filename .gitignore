@@ -3,13 +3,3 @@ node_modules/
 .DS_Store
 coverage/
 .pi
-
-# Local investigation and implementation plans
-/.agents/plans/
-
-# Local runtime state written by pi (loop jobs, harness settings)
-/.pi/loop-tasks.json
-.pi/subagents.json
-
-# Keep this plugin's settings global, not committed per project
-/.pi/agent/subagent-manager/settings.json

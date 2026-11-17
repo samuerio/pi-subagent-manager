@@ -550,12 +550,12 @@ export class ThreadManager {
     path = canonicalPath(path, caller);
     this.assertAccess(caller, path);
     const record = this.record(path);
-    if (!active(record.view)) return this.view(record);
     if (
       timeoutMs !== undefined &&
       (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 3_600_000)
     )
       throw new Error("timeoutMs must be between 0 and 3600000");
+    if (!active(record.view)) return this.view(record);
     if (signal?.aborted)
       throw new Error("Waiting cancelled; thread remains running");
     await new Promise<void>((resolve, reject) => {
@@ -811,10 +811,12 @@ export class ThreadManager {
           record.view.status = "Stopped; session retained";
       } catch (error) {
         record.view.state = record.stopRequested ? "stopped" : "failed";
-        record.view.error = errorText(error);
+        // A user stop aborts the run, and the resulting abort error is not a
+        // failure report: keep `error` empty so a stopped agent has no body.
+        if (!record.stopRequested) record.view.error = errorText(error);
         record.view.status = record.stopRequested
           ? "Stopped; session retained"
-          : record.view.error;
+          : record.view.error!;
       } finally {
         this.clearTimeout(record);
         this.freezeElapsed(record);
@@ -995,7 +997,20 @@ export class ThreadManager {
   private publishTranscript(record: Record): void {
     if (this.disposed || !record.transcriptListeners?.size) return;
     record.observationRevision = (record.observationRevision ?? 0) + 1;
-    const snapshot = this.transcriptSnapshot(record);
+    let snapshot: TranscriptSnapshot;
+    try {
+      snapshot = this.transcriptSnapshot(record);
+    } catch (error) {
+      // Custom tool details can be non-cloneable. Observation must never fail
+      // the run: `touch()` is called from the run's finally, where a throw would
+      // skip the settled event (and therefore the completion delivery).
+      record.observationError = `Transcript snapshot unavailable: ${errorText(error)}`;
+      return;
+    }
+    // The snapshot above carries any pending observation error for one render;
+    // clear it afterwards so a recovered stream resumes instead of pinning the
+    // live view in its error state (which also stops the progress timer).
+    record.observationError = undefined;
     for (const listener of record.transcriptListeners) {
       try {
         listener(snapshot);

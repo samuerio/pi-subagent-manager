@@ -201,6 +201,12 @@ export function createDriverFactory(
       throw new Error("Unsafe root session id for subagent storage");
     const agentDir = getAgentDir();
     const sessionDir = ctx.sessionManager.getSessionDir();
+    // A `--no-session` parent has no session directory; every child write would
+    // fail with a bare mkdir ENOENT instead of telling the user why.
+    if (!sessionDir)
+      throw new Error(
+        "Subagent threads need a persisted parent session; start pi without --no-session.",
+      );
     const legacyDir = path.join(agentDir, "subagents", rootId);
     options.signal.throwIfAborted();
     await mkdir(sessionDir, { recursive: true });
@@ -822,6 +828,9 @@ export function createDriverFactory(
         try {
           await enforceModelPin();
           await resumePending();
+          // A stop can land while either await is in flight; on an idle session
+          // session.abort() is a no-op, so the turn would otherwise run to completion.
+          if (aborted) throw new Error("Subagent run aborted");
           await session.prompt(message, { expandPromptTemplates: false });
           await session.waitForIdle();
           const last = session.messages

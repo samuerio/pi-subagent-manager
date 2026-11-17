@@ -155,6 +155,9 @@ export async function loadPromptHistoryForCwd(
     const tail = await readTail(file.filePath);
     if (!tail) continue;
     const lines = tail.split("\n").filter(Boolean);
+    // A 256 KB tail of a busy session holds far more than the cap; keep the
+    // newest prompts of this file, not the oldest.
+    const filePrompts: PromptEntry[] = [];
     for (const line of lines) {
       let entry: any;
       try {
@@ -173,9 +176,9 @@ export async function loadPromptHistoryForCwd(
       const text = extractText(message.content);
       if (!text) continue;
       const timestamp = entryTimestamp(message.timestamp, entry.timestamp);
-      prompts.push({ text, timestamp });
-      if (prompts.length >= MAX_RECENT_PROMPTS) break;
+      filePrompts.push({ text, timestamp });
     }
+    prompts.push(...filePrompts.slice(-MAX_RECENT_PROMPTS));
     if (prompts.length >= MAX_RECENT_PROMPTS) break;
   }
 

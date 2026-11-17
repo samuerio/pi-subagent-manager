@@ -496,7 +496,7 @@ async function configureAgentsDialog(
       } else if (action === "scope") {
         if (!ctx.isProjectTrusted())
           ctx.ui.notify(
-            "Project settings require a trusted project; saving globally.",
+            "Project settings require a trusted project; the scope switch was not applied.",
             "warning",
           );
         else {
@@ -585,6 +585,10 @@ async function configureAgentsDialog(
         error instanceof Error ? error.message : String(error),
         "error",
       );
+      // A save refused because the on-disk layers changed would otherwise fail
+      // the same way on every later attempt; refresh them but keep the draft.
+      layers = readLayers();
+      reportDiagnostics();
     }
   }
 }

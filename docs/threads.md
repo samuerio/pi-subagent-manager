@@ -28,7 +28,7 @@ A child starts from a snapshot of its **lexical parent** (the path one level up)
 - **Excluded:** the parent's system prompt, unmatched tool calls/results.
 - **Frozen:** later parent turns don't change the child's context.
 - **Model/thinking:** pinned by the `modes.json` role of the agent, never inherited from the parent.
-- **Independent roots** (`/k`) use the main session's model defaults but **none of its history**.
+- **Independent roots** (`/k`) use the same `modes.json` role pin as any other child but inherit **none of the main history**.
 
 ## States
 
@@ -49,7 +49,7 @@ Every state keeps the session. Any of them can be resumed with `agent_steer`.
 
 ## Persistence
 
-**Transcripts.** Each child is a normal pi JSONL session in the main session directory (normally `<pi-agent-dir>/sessions/<encoded-cwd>/`), named like `worker /root/task`, with a `parentSession` link.
+**Transcripts.** Each child is a normal pi JSONL session in the main session directory (normally `<pi-agent-dir>/sessions/<encoded-cwd>/`), named like `task /root/fix-auth`, with a `parentSession` link.
 
 - In `pi --resume` / `/resume` with **Threaded** sorting and empty search, children nest under parents.
 - Recent/Fuzzy sorting and search show flat rows. Named-only filtering can hide an unnamed parent.
@@ -71,4 +71,4 @@ Every state keeps the session. Any of them can be resumed with `agent_steer`.
 - A forked main session gets a fresh registry, so two parents never write the same child transcript.
 - Tree navigation in the parent restores that branch's registry and each child's transcript leaf.
 - Resuming from an older checkpoint branches the child file; newer branches stay intact.
-- In-memory main sessions don't survive process exit.
+- In-memory main sessions don't survive process exit, and they cannot spawn subagents: child transcripts need a session directory. Start pi without `--no-session` to use subagents.

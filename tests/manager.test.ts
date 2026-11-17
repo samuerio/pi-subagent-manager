@@ -452,6 +452,51 @@ test("stop cascades but retains sessions, and children cannot wait on ancestors"
   assert.equal(drivers.get("/root/worker")!.disposed, true);
 });
 
+test("a user stop never records the abort rejection as an error", async () => {
+  let rejectPrompt: ((error: Error) => void) | undefined;
+  const manager = new ThreadManager({
+    rootSnapshot: () => [user("root context")],
+    getType: (name) => ({ ...workerType, name }),
+    toolsFor: () => [],
+    createDriver: async () => ({
+      // The real runtime rejects prompt() after abort; the gated fixture resolves,
+      // which is why this needs its own driver.
+      prompt: () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectPrompt = reject;
+        }),
+      steer: async () => {},
+      snapshot: () => [],
+      output: () => "",
+      abort: async () => rejectPrompt?.(new Error("Subagent run aborted")),
+      dispose: () => {},
+      sendUpdate: () => {},
+    }),
+  });
+  await manager.spawn("/root", {
+    path: "worker",
+    type: "worker",
+    task: "work",
+    wait: false,
+  });
+  for (
+    let step = 0;
+    step < 50 && manager.get("/root/worker").state !== "running";
+    step++
+  )
+    await tick();
+  assert.equal(manager.get("/root/worker").state, "running");
+  const stopped = await manager.stop("/root", "worker");
+  assert.equal(stopped.state, "stopped");
+  assert.equal(
+    stopped.error,
+    undefined,
+    "the abort rejection is not a failure report",
+  );
+  assert.equal(stopped.output, undefined);
+  await manager.shutdown();
+});
+
 test("duplicate concurrent spawn is rejected and concurrency/depth limits apply", async () => {
   const { manager } = fixture({ maxConcurrent: 1, maxDepth: 1 });
   const results = await Promise.allSettled([

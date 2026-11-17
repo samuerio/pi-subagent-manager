@@ -20,7 +20,7 @@ Tests run offline with no model credentials. Scripted-provider SDK tests cover n
 | `src/orch/mailbox.ts`      | Input persistence, replay, transcript reconciliation                                                                        |
 | `src/orch/tools.ts`        | Caller-bound model tools                                                                                                    |
 | `src/orch/prompt.ts`       | System-prompt guidance per mode                                                                                             |
-| `src/orch/housekeeping.ts` | [labs] Housekeeping summarizer: throttling, cancellation, model resolution and the one-line summary call                    |
+| `src/orch/housekeeping.ts` | [lab] Housekeeping summarizer: throttling, cancellation, model resolution and the one-line summary call                    |
 | `src/agents/specs.ts`      | The built-in agent roster: prompts, tool allowlists, skills, role, color, icon                                              |
 | `src/modes/`               | `modes.json` management: schema, locked/atomic file layer, `/mode` runtime and dialogs, prompt history, editor border label |
 | `src/orch/routing.ts`      | `modes.json` role pins for the `oracle` and `subagents` model roles                                                         |
@@ -66,7 +66,7 @@ git tag -a v<version> -m v<version>
 git push && git push --tags
 ```
 
-The package ships TypeScript sources and `docs/`; check `files` in `package.json` when adding assets. Agent definitions are code, so an added agent also needs its entry in `src/agents/specs.ts` and (for completion and prompt guidance) `AGENT_SPEC_NAMES` in `src/types.ts`.
+The package ships TypeScript sources and `docs/`; check `files` in `package.json` when adding assets. Agent definitions are code, so an added agent also needs its entry in `src/agents/specs.ts` and, to keep the `AgentSpecName` type and the roster test honest, `AGENT_SPEC_NAMES` in `src/types.ts`. Completion and prompt guidance are generated from the table at runtime.
 
 ## Background
 

@@ -60,15 +60,15 @@ Controls the subagent status display above the input box. Choose **Status Widget
 
 Minimal mode groups starting agents with running agents and excludes the main conversation. Token totals exclude completed, stopped, failed and paused agents. The fullscreen tree remains available via `/agents tree` in either mode. Arrow keys at the draft edge walk a fixed line: **tree ← full ← minimal**. With **Full** configured, all three states are reachable: **Right (→)** at the end of the main draft (or in an empty input) collapses full to the one-line minimal view for this session only, without saving preferences; **Left (←)** at the start of the draft first returns minimal to full, and from full opens the tree (only while agents are starting or running). With **Minimal** configured the line is just **tree ← minimal**: Left opens the tree, and Right does nothing because minimal is already the right edge. In the fullscreen tree, **Right** on a leaf row (after folds and descents are exhausted) closes the tree and returns to the widget (full, or minimal if configured). Session startup/switch/reload restores the configured mode.
 
-## [labs] Nerd Font icons (`nerdFontIcons`)
+## [lab] Nerd Font icons (`nerdFontIcons`)
 
-Experimental features are tagged **[labs]** in the selected setting's help. Row labels omit that prefix to leave room for provenance dots. **[labs] Nerd Font icons** is an on/off toggle, **off by default**. Enable it in `/agents` and save with **Ctrl+S**, or set `"nerdFontIcons": true` in your settings file. Configure a [Nerd Font](https://www.nerdfonts.com/) in your terminal first; unsupported fonts may show boxes or incorrect glyphs. The extension does not install or detect fonts.
+Experimental rows carry a literal **[lab]** prefix in the row label, and their help starts with “Experimental:”. Provenance dots render before the label. **[lab] Nerd Font icons** is an on/off toggle, **off by default**. Enable it in `/agents` and save with **Ctrl+S**, or set `"nerdFontIcons": true` in your settings file. Configure a [Nerd Font](https://www.nerdfonts.com/) in your terminal first; unsupported fonts may show boxes or incorrect glyphs. The extension does not install or detect fonts.
 
-When enabled, an agent’s optional `icon` appears before its readable name in the full widget, thread browsers, live watcher header, and type picker. Starting/running agents show the selected loader **before the original role icon**, never replacing it. Completed, paused, failed, and stopped agents show that loader family's corresponding static state icon before the role icon. Agents without a configured role icon still show their loader/state indicator. The one-line minimal widget uses the same family's indicators for aggregate status counts. Turning the setting off hides role icons without removing configured icons; portable loaders remain visible; RPC output keeps state indicators static. Saved settings apply immediately to newly rendered widgets and dialogs.
+When enabled, an agent’s optional `icon` appears before its readable name in the full widget, thread browsers, live watcher header. Starting/running agents show the selected loader **before the original role icon**, never replacing it. Completed, paused, failed, and stopped agents show that loader family's corresponding static state icon before the role icon. Agents without a configured role icon still show their loader/state indicator. The one-line minimal widget uses the same family's indicators for aggregate status counts. Turning the setting off hides role icons without removing configured icons; portable loaders remain visible; RPC output keeps state indicators static. Saved settings apply immediately to newly rendered widgets and dialogs.
 
 Each built-in agent has a [role-specific icon](default-agents.md#nerd-font-icons), defined next to its other fields in `src/agents/specs.ts`. Retained threads keep the icon from their saved definition.
 
-## [labs] Loader style (`loaderStyle`)
+## [lab] Loader style (`loaderStyle`)
 
 Choose a loader in `/agents` settings and save with **Ctrl+S**, or set `loaderStyle` in your settings file:
 
@@ -81,13 +81,13 @@ Choose a loader in `/agents` settings and save with **Ctrl+S**, or set `loaderSt
 | ASCII Star  | `ascii-star`             | `+ x *`             | No                               |
 | ASCII Pulse | `ascii-pulse`            | `= * -`             | No                               |
 
-With **[labs] Nerd Font icons** off, the picker shows only Braille and ASCII palettes. With it on, all palettes are available. Saved Circle/Hourglass preferences render as ASCII while Nerd Fonts are off, without changing the saved preference. ASCII palettes use `+`, `=`, `!`, and `#` for completed, paused, failed, and stopped states. The compact ASCII animations are inspired by [cli-spinners](https://github.com/sindresorhus/cli-spinners/blob/main/spinners.json) (`line`, `star2`, and `toggle13`).
+With **[lab] Nerd Font icons** off, the picker shows only Braille and ASCII palettes. With it on, all palettes are available. Saved Circle/Hourglass preferences render as ASCII while Nerd Fonts are off, without changing the saved preference. ASCII palettes use `+`, `=`, `!`, and `#` for completed, paused, failed, and stopped states. The compact ASCII animations are inspired by [cli-spinners](https://github.com/sindresorhus/cli-spinners/blob/main/spinners.json) (`line`, `star2`, and `toggle13`).
 
 The Labs preview shows every family's running animation frames and completed, paused, failed, and stopped icons, so you can compare all states before choosing. Starting uses the running animation. State indicators precede the role icon when role icons are enabled; the selected family also applies to the minimal widget's counts. In non-animated output, active agents use the family's first frame.
 
-## [labs] Cost display (`costDisplay`)
+## [lab] Cost display (`costDisplay`)
 
-Open **[labs] Footer display** in `/agents settings` to choose the location, display value, and icon, then return and save. The stable ID/key is **`subagent_cost`**.
+Open **[lab] Footer display** in `/agents settings` to choose the location, display value, and icon, then return and save. The stable ID/key is **`subagent_cost`**.
 
 | Value                        | Output                                                                                                                                                                                                                                                                                                         |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -97,13 +97,13 @@ Open **[labs] Footer display** in `/agents settings` to choose the location, dis
 
 Both status modes use the same public Pi status API: third-party footers may also display Pi status-only output. These modes never replace your footer. **Display value** (`costValue`) is independent of location: `subagents` (default) shows settled subagent-only USD; `total` adds the main session’s cost. In all modes, running subagent costs settle on completion, pause, stop, or failure. Values publish on session start/reload, immediately when a subagent starts (even at zero), after settlement/settings changes, and when main-session turns end. Switching locations clears the previous output; shutdown clears the published value.
 
-**Icon** (`costIcon`) offers `money` (default), `coins`, or `wallet`. With **[labs] Nerd Font icons** off, these appear as 💵, 🪙, or 👛. With it on, the picker and output use corresponding Nerd Font glyphs instead. The semantic choice survives toggling font mode.
+**Icon** (`costIcon`) offers `money` (default), `coins`, or `wallet`. With **[lab] Nerd Font icons** off, these appear as 💵, 🪙, or 👛. With it on, the picker and output use corresponding Nerd Font glyphs instead. The semantic choice survives toggling font mode.
 
 **Cost accounting.** Agent rows show estimated USD cost, including cache reads and writes, when the provider reports it. Running costs stay in those rows until the agent completes, pauses, stops, or fails; then only newly incurred costs are added to the total. Resuming, reloading, navigating branches, or reaping agents does not lose those totals, and nested agents' costs are counted once. These totals do not change Pi's native session statistics.
 
 See [Subagent dollar totals in pi-footer](pi-footer.md) for step-by-step setup and copy-paste widget configuration, status-key, and event snippets.
 
-## [labs] Subagent extensions (`subagentExtensions`)
+## [lab] Subagent extensions (`subagentExtensions`)
 
 Experimental per-extension chooser, **none enabled by default**. Open **[lab] Subagent extensions** in `/agents settings`. Use ↑/↓ or Tab to navigate, Space/Enter to toggle each extension, and Esc/Back to return. Then **Save and apply** (Ctrl+S) in the outer settings dialog; outer Cancel discards edits. Full paths appear in row help so identically named extensions can be distinguished.
 
@@ -123,7 +123,7 @@ When a subagent session opens, it reloads only selected, currently enabled exten
 
 Save and apply affects newly opened sessions, including retained sessions reopened after reload. Already-open agents keep their extension runtime until disposed. The main agent's extensions and tool set are not changed. Leave all extensions unselected unless your extensions are safe to run across separate sessions.
 
-## [labs] Checklist integration (`checklistIntegration`)
+## [lab] Checklist integration (`checklistIntegration`)
 
 Experimental on/off toggle, **off by default**, for use with [pi-checklist](https://github.com/championswimmer/pi-checklist) 3.0.0 or later. The row is always shown in `/agents settings`; it is muted and cannot be turned **On** unless all of these hold right now:
 
@@ -136,9 +136,9 @@ When the setting is on, eligible, and Subagent Mode is not Off, the main agent's
 
 pi-checklist exposes no runtime API, events or version query, so this is a source-backed adapter: identity and version come from the checklist tools' registration origin and owning `package.json`, and the current meta state mirrors pi-checklist's own rule (global `pi-checklist.json` preference, else the latest branch snapshot, else off) at session start/tree navigation, then follows meta changes made in this session. Another session editing the global preference does not change this session until it reloads or navigates. Anything unrecognized fails closed (guidance is not added). `meta.agent` is this extension's convention, not part of pi-checklist's API. With **Enable subagent extensions**, child sessions may load their own checklist state separate from the main agent's.
 
-## [labs] Final Recap (`finalRecap`)
+## [lab] Final Recap (`finalRecap`)
 
-**[labs] Final Recap** is an experimental on/off toggle, **off by default**. Enable it in `/agents` and save with **Ctrl+S**, or set `"finalRecap": true` in your settings file.
+**[lab] Final Recap** is an experimental on/off toggle, **off by default**. Enable it in `/agents` and save with **Ctrl+S**, or set `"finalRecap": true` in your settings file.
 
 When detached agents finish or fail and the main agent is idle, their results are sent back to the main agent. It collects results and continues any unfinished work; only when the overall task is complete does it give a final recap. The response stays in the main thread, so child notifications do not become the final visible message. Progress updates do not trigger turns, and active main-agent work is not interrupted. **Subagent Mode Off** suppresses automatic turns even if this setting is enabled.
 
@@ -148,11 +148,11 @@ The scheduler retains pending notifications while the main agent is busy (includ
 
 **Enabling Final Recap may cause extra model turns and uses more tokens and context.** Leave it off if you prefer to inspect results manually in `/agents tree` or request a summary yourself.
 
-## [labs] Housekeeping model (`housekeepingEnabled`, `housekeepingModel`)
+## [lab] Housekeeping model (`housekeepingEnabled`, `housekeepingModel`)
 
 Experimental, **off by default**. A small model of your choice writes a **one-line summary of what each running agent is doing right now**, shown in the fullscreen tree (`/agents tree`) in place of the raw tool-call line (for example `Running the auth unit tests` instead of `Tool: bash`) and in the full status widget in place of the task.
 
-Open **[labs] Housekeeping model** in `/agents settings` and set two things, then save with **Ctrl+S**:
+Open **[lab] Housekeeping model** in `/agents settings` and set two things, then save with **Ctrl+S**:
 
 | Key                   | Meaning                                                          |
 | --------------------- | ---------------------------------------------------------------- |
@@ -229,8 +229,9 @@ Every agent spec carries a complete tool allowlist; there is no block list and n
 - An explicitly listed inherited tool (MCP, extension) becomes active in the child. Bridge behavior,
   main-session permission hooks and model-only failures work as before.
 - Manager tools (`agent_wait`, `agent_steer`, `agent_status`, `agent_output`, `agent_update`,
-  `agent_pause`, `agent_stop`) and the spawn verbs are ordinary allowlist entries: only `task` lists the
-  spawn verbs, which is why only `task` children can delegate.
+  `agent_pause`, `agent_stop`) and the spawn verbs are ordinary allowlist entries. No built-in spec
+  lists a spawn verb, so no built-in agent can delegate: only `/root` spawns. Nesting is reached by
+  naming a path whose parent thread already exists.
 - Skills are an exact per-spec allowlist: discovery is off, and only the spec's `skills` paths load.
 
 ## Max Levels (`maxLevels`)
@@ -241,7 +242,7 @@ Maximum tree depth, counting the main conversation as level 1. Integer 1–32. D
 | ------------- | ------------------------ | ---------------------------------------------------- |
 | `1`           | No new subagents         | Block spawning while still resuming existing threads |
 | `2`           | Children only            | Flat fan-out; simplest to follow                     |
-| `3` (default) | Children + grandchildren | A `task` agent delegating to `finder`                |
+| `3` (default) | Children + grandchildren | `/root/task` plus a nested `/root/task/finder`       |
 | `4+`          | Deeper trees             | Large hierarchical teams                             |
 
 Independent roots like `/k` count as level 2, so they can't bypass the limit. Lowering it still lets you resume existing deeper threads.

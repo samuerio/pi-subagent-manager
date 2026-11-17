@@ -183,7 +183,6 @@ export type DriverEvent =
       /** Streaming message_update snapshot. Omit for authoritative message_end. */
       partial?: boolean;
     };
-/** Ephemeral read-only transcript state; never part of registry/delivery events. */
 /** One bounded child tool call in a live spawn update; never persisted. */
 export interface LiveToolCall {
   name: string;

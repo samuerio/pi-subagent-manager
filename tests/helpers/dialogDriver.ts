@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { DialogEditor, DialogMenu } from "../../src/ui/dialog.ts";
 
-const drivers = new WeakMap<object, DialogDriver>();
-
 export interface DialogDriverStats {
   outerOpens: number;
   outerCompletions: number;
@@ -42,16 +40,6 @@ export interface DialogDriverOptions {
   onFrame?: (component: any, lines: string[]) => void;
   onOpen?: (options: unknown) => void;
   assertBorder?: boolean;
-}
-
-export function bindDialogDriver(ctx: object, driver: DialogDriver): void {
-  drivers.set(ctx, driver);
-}
-
-export function dialogDriverFor(ctx: object): DialogDriver {
-  const driver = drivers.get(ctx);
-  assert.ok(driver, "dialog driver missing for context");
-  return driver;
 }
 
 function isSession(component: unknown): component is { getComponent(): unknown } {
