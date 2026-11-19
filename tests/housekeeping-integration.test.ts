@@ -5,6 +5,7 @@ import test from "node:test";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
+  REGISTRY_DELTA_ENTRY,
   REGISTRY_ENTRY,
   withOfflineHarness,
   type LoggedRequest,
@@ -145,7 +146,11 @@ test(
         // Never persisted into the session registry.
         const entries = session.sessionManager
           .getEntries()
-          .filter((e) => e.type === "custom" && e.customType === REGISTRY_ENTRY);
+          .filter(
+            (e) =>
+              e.type === "custom" &&
+              (e.customType === REGISTRY_ENTRY || e.customType === REGISTRY_DELTA_ENTRY),
+          );
         assert.ok(entries.length > 0);
         assert.doesNotMatch(JSON.stringify(entries), /Reading the project notes/);
         release();

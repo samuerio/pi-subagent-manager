@@ -15,6 +15,7 @@ Tests run offline with no model credentials. Scripted-provider SDK tests cover n
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `src/index.ts`             | Parent-session lifecycle and extension wiring                                                                               |
 | `src/orch/manager.ts`      | Ownership, lifecycle, retained registry. `scope(caller)` gives tools and UI the same caller-bound `ThreadService`.          |
+| `src/orch/registry.ts`     | Registry persistence: a full entry per attach, then deltas of changed thread fields                                         |
 | `src/orch/runtime.ts`      | Isolated pi SDK sessions, providers, safe turn boundaries                                                                   |
 | `src/orch/paths.ts`        | Canonical ancestry and context snapshots                                                                                    |
 | `src/orch/mailbox.ts`      | Input persistence, replay, transcript reconciliation                                                                        |

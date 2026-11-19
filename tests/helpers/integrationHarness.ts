@@ -23,10 +23,11 @@ import {
 import piSubagent from "../../src/index.ts";
 import { resetAgentSpecs, setAgentSpecs } from "../../src/agents/specs.ts";
 import { testSpec } from "./spec.ts";
-import type { AgentSpec, SavedThread } from "../../src/types.ts";
+import { readRegistry } from "../../src/orch/registry.ts";
+import type { AgentSpec } from "../../src/types.ts";
 import type { ManagerSettings } from "../../src/prefs/settings.ts";
 
-export const REGISTRY_ENTRY = "pi-subagent:registry:v1";
+export { REGISTRY_DELTA_ENTRY, REGISTRY_ENTRY } from "../../src/orch/registry.ts";
 
 export type LoggedRequest = {
   call: number;
@@ -56,17 +57,9 @@ export type OfflineHarness = {
 };
 
 export const registry = (manager: SessionManager, fromId?: string) => {
-  const entry = [...manager.getBranch(fromId)]
-    .reverse()
-    .find(
-      (item) => item.type === "custom" && item.customType === REGISTRY_ENTRY,
-    );
-  assert.ok(entry?.type === "custom", "durable registry entry exists");
-  return entry.data as {
-    version: number;
-    rootSessionId: string;
-    threads: SavedThread[];
-  };
+  const saved = readRegistry(manager.getBranch(fromId));
+  assert.ok(saved, "durable registry entry exists");
+  return saved;
 };
 
 export async function withOfflineHarness(

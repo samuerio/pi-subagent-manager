@@ -47,11 +47,11 @@ import {
   isAgentSpecName,
   listAgentSpecs,
 } from "./agents/specs.ts";
-import type { SavedThread, ThreadEvent, ThreadView } from "./types.ts";
+import type { ThreadEvent, ThreadView } from "./types.ts";
 import { COST_ENTRY, CostLedger } from "./orch/cost-ledger.ts";
+import { readRegistry, RegistryWriter } from "./orch/registry.ts";
 import { CostFooterController } from "./ui/cost-footer.ts";
 
-const REGISTRY_ENTRY = "pi-subagent:registry:v1";
 const ROOT_MAILBOX_ENTRY = "pi-subagent:root-mailbox:v1";
 const ROOT_SUMMARY_MESSAGE = "pi-subagent:final-recap";
 const ROOT_WAKE_MESSAGE = "pi-subagent:wake";
@@ -325,7 +325,9 @@ export default function piSubagent(pi: ExtensionAPI): void {
     if (historiesMatch(merged, immediate)) return;
     navigationEditor.replaceHistory(merged.map((entry) => entry.text));
   };
-  let persistenceSignature = "";
+  const registryWriter = new RegistryWriter((customType, data) =>
+    pi.appendEntry(customType, data),
+  );
   const requireManager = () => {
     if (!manager)
       throw new Error(
@@ -348,16 +350,10 @@ export default function piSubagent(pi: ExtensionAPI): void {
   };
   const persist = () => {
     if (!manager) return;
-    const threads = manager.saved();
-    const signature = JSON.stringify(threads);
-    if (signature !== persistenceSignature) {
-      pi.appendEntry(REGISTRY_ENTRY, {
-        version: 1,
-        rootSessionId: requireContext().sessionManager.getSessionId(),
-        threads,
-      });
-      persistenceSignature = signature;
-    }
+    registryWriter.write(
+      requireContext().sessionManager.getSessionId(),
+      manager.saved(),
+    );
   };
   const warnDelivery = (error: unknown) => {
     if (limits.subagentMode === "off") return;
@@ -714,7 +710,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
       widgetCollapsed = false;
       hiddenWidgetThreads.clear();
     }
-    persistenceSignature = "";
+    registryWriter.reset();
     const settingsDiagnostics = loadLimits(ctx);
     syncTools();
     driverFactory = makeDriverFactory();
@@ -769,32 +765,18 @@ export default function piSubagent(pi: ExtensionAPI): void {
         );
       }
     }
-    const entries = ctx.sessionManager.getBranch();
-    const entry = [...entries]
-      .reverse()
-      .find(
-        (item) => item.type === "custom" && item.customType === REGISTRY_ENTRY,
-      );
-    if (entry?.type === "custom") {
-      try {
-        const data = entry.data as {
-          version: number;
-          rootSessionId: string;
-          threads: SavedThread[];
-        };
-        if (data.version !== 1 || !Array.isArray(data.threads))
-          throw new Error("Invalid registry format");
-        // Forked parents own a new registry; they must not share writable child transcripts.
-        if (data.rootSessionId === ctx.sessionManager.getSessionId())
-          instance.restore(data.threads);
-        else persist();
-      } catch (error) {
-        if (limits.subagentMode !== "off")
-          ctx.ui.notify(
-            `Could not restore subagent registry: ${String(error)}`,
-            "error",
-          );
-      }
+    try {
+      const saved = readRegistry(ctx.sessionManager.getBranch());
+      // Forked parents own a new registry; they must not share writable child transcripts.
+      if (saved?.rootSessionId === ctx.sessionManager.getSessionId())
+        instance.restore(saved.threads);
+      else if (saved) persist();
+    } catch (error) {
+      if (limits.subagentMode !== "off")
+        ctx.ui.notify(
+          `Could not restore subagent registry: ${String(error)}`,
+          "error",
+        );
     }
     // Recover a persisted settlement whose ledger append was interrupted, including runs paused on reload.
     for (const saved of instance.saved())
@@ -878,6 +860,8 @@ export default function piSubagent(pi: ExtensionAPI): void {
     closeNavigation(true);
     await manager?.shutdown();
     costFooter.clear();
+    // A clean close leaves an exact checkpoint, so the next resume replays no deltas.
+    registryWriter.reset();
     persist();
     if (context?.hasUI) context.ui.setWidget("pi-subagent", undefined);
     manager = undefined;
