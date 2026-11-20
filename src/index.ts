@@ -39,7 +39,7 @@ import {
   checklistStatus,
 } from "./orch/checklist-integration.ts";
 import { agentTools } from "./orch/tools.ts";
-import { OUTPUT_PREVIEW_CHARS, truncationNote } from "./types.ts";
+import { OUTPUT_PREVIEW_CHARS, truncationNote, type ThreadEvent } from "./types.ts";
 import { updateWidget } from "./ui/ui.ts";
 import { canOpenDialog, dialogMenu } from "./ui/dialog.ts";
 import {
@@ -47,10 +47,7 @@ import {
   isAgentSpecName,
   listAgentSpecs,
 } from "./agents/specs.ts";
-import type { ThreadEvent, ThreadView } from "./types.ts";
-import { COST_ENTRY, CostLedger } from "./orch/cost-ledger.ts";
 import { readRegistry, RegistryWriter } from "./orch/registry.ts";
-import { CostFooterController } from "./ui/cost-footer.ts";
 
 const ROOT_MAILBOX_ENTRY = "pi-subagent:root-mailbox:v1";
 const ROOT_SUMMARY_MESSAGE = "pi-subagent:final-recap";
@@ -73,20 +70,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
   let context: ExtensionContext | undefined;
   const inheritedTools = createInheritedToolSource(pi);
   let manager: ThreadManager | undefined;
-  let costLedger = new CostLedger();
-  const costFooter = new CostFooterController(
-    pi,
-    () => costLedger.totalUsd,
-    () => limits.nerdFontIcons,
-    () => limits.costDisplay,
-    () => limits.costValue,
-    () => limits.costIcon,
-  );
-  const refreshCostFooter = (ctx: ExtensionContext) => costFooter.refresh(ctx);
-  const rollupCost = (thread: ThreadView) => {
-    costLedger.settle(thread, (record) => pi.appendEntry(COST_ENTRY, record));
-    if (context) refreshCostFooter(context);
-  };
   let limits = loadManagerSettings({
     cwd: process.cwd(),
     agentDir: getAgentDir(),
@@ -100,11 +83,7 @@ export default function piSubagent(pi: ExtensionAPI): void {
       limits.housekeepingModel !== "" &&
       context !== undefined &&
       resolveHousekeepingModel(context, limits.housekeepingModel) !== undefined,
-    complete: createHousekeepingCompleter(
-      () => context,
-      () => limits.housekeepingModel,
-      refreshCostFooter,
-    ),
+    complete: createHousekeepingCompleter(() => context, () => limits.housekeepingModel),
     apply: (path, run, summary) =>
       manager?.setSummary(path, run, summary) ?? false,
     clear: (path, run) => void manager?.clearSummary(path, run),
@@ -131,7 +110,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
     });
     limits = loaded.settings;
     syncHousekeeping();
-    refreshCostFooter(ctx);
     return loaded.diagnostics;
   };
   const checklistMirror = new ChecklistMetaMirror(() => getAgentDir());
@@ -669,7 +647,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
   pi.on("agent_end", async (_event, ctx) => {
     rootTurnEnded = true;
     if (manager) refreshWidget(ctx);
-    refreshCostFooter(ctx);
   });
   syncTools();
   pi.on("before_agent_start", async (event, ctx) => {
@@ -702,9 +679,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
     // pi-checklist reseeds its own state on these same lifecycle events.
     checklistMirror.reset(ctx);
     context = ctx;
-    costLedger = new CostLedger();
-    costLedger.restore(ctx.sessionManager.getEntries());
-    costFooter.reset(ctx);
     rootTurnEnded = false;
     if (installEditor) {
       widgetCollapsed = false;
@@ -748,8 +722,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
           housekeeping.settle(event.thread.path);
         refreshWidget(requireContext());
         if (event.kind !== "metrics") persist();
-        if (event.kind === "settled") rollupCost(event.thread);
-        else refreshCostFooter(requireContext());
         delivery(event);
       },
     });
@@ -778,9 +750,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
           "error",
         );
     }
-    // Recover a persisted settlement whose ledger append was interrupted, including runs paused on reload.
-    for (const saved of instance.saved())
-      rollupCost({ ...saved.view, updatedAt: Date.now() });
     restoreRootMailbox(ctx);
     refreshWidget(ctx);
     if (limits.subagentMode !== "off" && settingsDiagnostics.length)
@@ -859,7 +828,6 @@ export default function piSubagent(pi: ExtensionAPI): void {
     generation++;
     closeNavigation(true);
     await manager?.shutdown();
-    costFooter.clear();
     // A clean close leaves an exact checkpoint, so the next resume replays no deltas.
     registryWriter.reset();
     persist();

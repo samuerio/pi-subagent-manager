@@ -555,15 +555,9 @@ for (const stopReason of ["stop", "error", "aborted", "empty"] as const) {
           }),
       }),
     });
-    let refreshed = 0;
     const complete = createHousekeepingCompleter(
       () => ctx,
       () => "selected/model",
-      (current) => {
-        assert.equal(current, ctx);
-        assert.equal(sessionManager.getEntries().length, 1);
-        refreshed++;
-      },
     );
     const result = complete(
       { system: "private system prompt", user: "private task and arguments" },
@@ -582,7 +576,6 @@ for (const stopReason of ["stop", "error", "aborted", "empty"] as const) {
     assert.equal(entry.provider, "response-provider");
     assert.equal(entry.kind, "subagent-manager");
     assert.doesNotMatch(JSON.stringify(entries), /private|Reading files|provider failed/);
-    assert.equal(refreshed, 1);
   });
 }
 
@@ -627,13 +620,9 @@ test("late cancelled responses charge the captured original session, not its rep
   let current = originatingContext;
   const replacement = fakeContext({ available: [model("a", "b")] });
   const controller = new AbortController();
-  let refreshed = 0;
   const complete = createHousekeepingCompleter(
     () => current,
     () => "a/b",
-    () => {
-      refreshed++;
-    },
   );
   const pending = complete({ system: "", user: "" }, controller.signal);
   current = replacement.ctx;
@@ -643,7 +632,6 @@ test("late cancelled responses charge the captured original session, not its rep
   await assert.rejects(pending, /aborted/);
   assert.equal(sessionManager.getEntries().length, 1);
   assert.deepEqual(replacement.sessionManager.getEntries(), []);
-  assert.equal(refreshed, 0, "late usage must not refresh the replacement session UI");
 });
 
 test("scheduler drops stale display results while the completer retains their usage", async (t) => {
@@ -673,7 +661,7 @@ test("scheduler drops stale display results while the completer retains their us
   assert.equal(sessionManager.getEntries().length, 1);
 });
 
-test("accounting and cost-refresh failures do not break successful summaries", async (t) => {
+test("accounting failures do not break successful summaries", async (t) => {
   const failedNative = SessionManager.inMemory();
   t.mock.method(failedNative, "appendUsage", () => {
     throw new Error("native write failed");
@@ -691,21 +679,6 @@ test("accounting and cost-refresh failures do not break successful summaries", a
     "Reading files",
   );
   assert.deepEqual(failedNative.getEntries(), []);
-  const second = fakeContext({
-    available: [model("a", "b")],
-    stream: () => ({ result: async () => billableResponse() }),
-  });
-  assert.equal(
-    await createHousekeepingCompleter(
-      () => second.ctx,
-      () => "a/b",
-      () => {
-        throw new Error("UI gone");
-      },
-    )({ system: "", user: "" }, new AbortController().signal),
-    "Reading files",
-  );
-  assert.equal(second.sessionManager.getEntries().length, 1, "native survives UI failure");
 });
 
 // --- manager integration --------------------------------------------------------------------

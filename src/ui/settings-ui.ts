@@ -11,10 +11,6 @@ import {
 import {
   DEFAULT_MANAGER_SETTINGS,
   settingsValueEqual,
-  type CostDisplayMode,
-  COST_ICONS,
-  type CostIcon,
-  type CostValue,
   LOADER_STYLES,
   type LoaderStyle,
   deleteManagerSettings,
@@ -28,7 +24,6 @@ import {
 } from "../prefs/settings.ts";
 import { HOUSEKEEPING_PICKER_CANCEL, pickHousekeepingModel } from "./model-picker.ts";
 import { AGENT_LOADERS, availableLoaderStyles, effectiveLoaderStyle } from "./agent-loader.ts";
-import { costIconGlyph } from "./cost-footer.ts";
 import { CHECKLIST_REQUIREMENTS, type ChecklistStatus } from "../orch/checklist-integration.ts";
 
 const LOADER_OPTIONS = LOADER_STYLES.map((id) => {
@@ -101,33 +96,6 @@ const WIDGET_MODE_OPTIONS = [
 const WIDGET_MODE_HELP =
   "Full: detailed agent status rows above the input box.\nMinimal: one-line status counts and cumulative input/output tokens for active (starting/running) agents.\nSave and apply to update the widget immediately.";
 
-const COST_DISPLAY_OPTIONS = [
-  {
-    id: "pi-status",
-    label: "Replace Pi status",
-    help: "Show the selected cost in Pi’s status area, without replacing the whole footer. Third-party footers may also consume this status.",
-  },
-  {
-    id: "pi-footer-status",
-    label: "pi-footer status widget",
-    value: "subagent_cost",
-    help: "Status key: subagent_cost\nSelect subagent_cost in pi-footer’s Extension Status widget. Does not replace your footer.",
-  },
-  {
-    id: "pi-footer-event",
-    label: "pi-footer event",
-    value: "subagent_cost",
-    help: "Event: pi-footer:update-widget\nWidget ID: subagent_cost\nAdd a Pi Event Value widget and enable Raw value only. Without an external /footer, retain the cost fallback.",
-  },
-] as const;
-
-const COST_VALUE_OPTIONS = [
-  { id: "subagents", label: "Only subagent cost", help: "Settled USD cost of all subagents; excludes the main session." },
-  { id: "total", label: "Total cost", help: "Main session USD cost plus all settled subagent costs." },
-] as const;
-
-const COST_ICON_LABELS = { money: "Money", coins: "Coins", wallet: "Wallet" } as const;
-
 type SettingsLayers = ReturnType<typeof loadManagerSettingsLayers>;
 
 /** Persisted changes, not unsaved draft values; theme styling is computed on render. */
@@ -179,54 +147,6 @@ async function configureSubagentExtensions(
     selectedId = action;
     if (selected.has(action)) selected.delete(action);
     else selected.add(action);
-  }
-}
-
-/** Edits the shared draft; only the outer settings screen saves or applies it. */
-async function configureFooterDisplay(ctx: ExtensionCommandContext, draft: ManagerSettings, layers: SettingsLayers): Promise<void> {
-  let selectedId: string | undefined;
-  while (true) {
-    const action = await dialogMenu(ctx, "[lab] Footer display", ([
-      {
-        id: "location",
-        label: "Location",
-        value: COST_DISPLAY_OPTIONS.find((option) => option.id === draft.costDisplay)!.label,
-        help: "Choose Pi status, a pi-footer status widget, or a pi-footer event. Integration IDs are shown in the location picker.",
-      },
-      {
-        id: "value",
-        label: "Display value",
-        value: COST_VALUE_OPTIONS.find((option) => option.id === draft.costValue)!.label,
-        help: "Show only settled subagent cost, or main session plus settled subagents. Applies to every location.",
-      },
-      {
-        id: "icon",
-        label: "Icon",
-        value: `${costIconGlyph(draft.costIcon, draft.nerdFontIcons)} ${COST_ICON_LABELS[draft.costIcon]}`,
-        help: `Choose a money-related ${draft.nerdFontIcons ? "Nerd Font" : "emoji"} icon. The family follows [lab] Nerd Font icons.`,
-      },
-      { id: "back", label: "Back", help: "Return to settings. Save and apply there to commit these changes." },
-    ] as DialogRow[]).map((row) => {
-      const key = ({ location: "costDisplay", value: "costValue", icon: "costIcon" } as Record<string, keyof ManagerSettings>)[row.id];
-      return key ? withProvenance(row, [key], layers) : row;
-    }), { selectedId, renderLegend: provenanceLegend, footer: "↑↓/Tab navigate · Enter edit · Esc back" });
-    if (!action || action === "back") return;
-    selectedId = action;
-    if (action === "location") {
-      const mode = await dialogMenu(ctx, "Footer location", [...COST_DISPLAY_OPTIONS], { selectedId: draft.costDisplay });
-      if (COST_DISPLAY_OPTIONS.some((option) => option.id === mode)) draft.costDisplay = mode as CostDisplayMode;
-    } else if (action === "value") {
-      const value = await dialogMenu(ctx, "Footer display value", [...COST_VALUE_OPTIONS], { selectedId: draft.costValue });
-      if (COST_VALUE_OPTIONS.some((option) => option.id === value)) draft.costValue = value as CostValue;
-    } else if (action === "icon") {
-      const icon = await dialogMenu(ctx, `Footer icon · ${draft.nerdFontIcons ? "Nerd Font" : "Emoji"}`, COST_ICONS.map((id) => ({
-        id,
-        label: COST_ICON_LABELS[id],
-        value: costIconGlyph(id, draft.nerdFontIcons),
-        help: `${costIconGlyph(id, draft.nerdFontIcons)} ${COST_ICON_LABELS[id]} · ${draft.nerdFontIcons ? "Requires a Nerd Font in your terminal." : "Emoji icon."}`,
-      })), { selectedId: draft.costIcon });
-      if (COST_ICONS.includes(icon as CostIcon)) draft.costIcon = icon as CostIcon;
-    }
   }
 }
 
@@ -360,12 +280,6 @@ async function configureAgentsDialog(
           help: WIDGET_MODE_HELP,
         },
         {
-          id: "costDisplay",
-          label: "[lab] Footer display",
-          value: COST_DISPLAY_OPTIONS.find((mode) => mode.id === draft.costDisplay)!.label,
-          help: "Configure footer location, displayed cost, and money icon in a submenu. Save and apply to update immediately.",
-        },
-        {
           id: "housekeeping",
           label: "[lab] Housekeeping model",
           value: housekeepingValue(draft),
@@ -421,10 +335,8 @@ async function configureAgentsDialog(
           help: "Close without saving manager settings.",
         },
       ] as DialogRow[]).map((row) => {
-        const keys = row.id === "costDisplay"
-          ? ["costDisplay", "costValue", "costIcon"] as (keyof ManagerSettings)[]
-          : row.id === "housekeeping"
-            ? ["housekeepingEnabled", "housekeepingModel"] as (keyof ManagerSettings)[]
+        const keys = row.id === "housekeeping"
+          ? ["housekeepingEnabled", "housekeepingModel"] as (keyof ManagerSettings)[]
           : row.id in DEFAULT_MANAGER_SETTINGS ? [row.id as keyof ManagerSettings] : [];
         return keys.length ? withProvenance(row, keys, layers) : row;
       }),
@@ -468,8 +380,6 @@ async function configureAgentsDialog(
         });
         if (WIDGET_MODE_OPTIONS.some((option) => option.id === mode))
           draft.widgetMode = mode as WidgetMode;
-      } else if (action === "costDisplay") {
-        await configureFooterDisplay(ctx, draft, layers);
       } else if (action === "housekeeping") {
         await configureHousekeeping(ctx, draft, layers);
       } else if (action === "nerdFontIcons") {

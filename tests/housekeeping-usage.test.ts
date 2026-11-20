@@ -15,8 +15,6 @@ import {
   reportHousekeepingUsage,
   type HousekeepingUsageSession,
 } from "../src/orch/housekeeping-usage.ts";
-import { CostLedger } from "../src/orch/cost-ledger.ts";
-import { COST_WIDGET_ID, CostFooterController, footerUsage } from "../src/ui/cost-footer.ts";
 
 const usage: Usage = {
   input: 100,
@@ -72,7 +70,6 @@ test("usage persists as a native session entry that readers can restore", (t) =>
     restored.getEntries().filter((record) => record.type === "usage"),
     [entry],
   );
-  assert.equal(footerUsage(restored.getEntries()).cost, usage.cost.total);
   assert.deepEqual(buildSessionContext(restored.getEntries()).messages, [
     { role: "user", content: "Start work", timestamp: 1 },
   ]);
@@ -137,37 +134,4 @@ test("missing response usage produces no fabricated accounting", () => {
     undefined,
   );
   assert.deepEqual(manager.getEntries(), []);
-});
-
-test("housekeeping enters Total exactly once, not the subagent-only ledger or cost display", () => {
-  const manager = SessionManager.inMemory();
-  reportHousekeepingUsage(capture(manager), response);
-  const ledger = new CostLedger();
-  ledger.restore(manager.getEntries());
-  assert.equal(ledger.totalUsd, 0);
-  assert.equal(footerUsage(manager.getEntries()).cost, usage.cost.total);
-  let value: "subagents" | "total" = "subagents";
-  let status = "";
-  const ctx = {
-    hasUI: true,
-    sessionManager: manager,
-    ui: {
-      setStatus(key: string, text: string) {
-        assert.equal(key, COST_WIDGET_ID);
-        status = text;
-      },
-    },
-  } as unknown as ExtensionContext;
-  const footer = new CostFooterController(
-    { getCommands: () => [], events: { emit() {} } } as never,
-    () => ledger.totalUsd,
-    () => false,
-    () => "pi-status",
-    () => value,
-  );
-  footer.refresh(ctx);
-  assert.equal(status, "Subagents: 💵 $0.0000");
-  value = "total";
-  footer.refresh(ctx);
-  assert.equal(status, "Total: 💵 $0.0340");
 });

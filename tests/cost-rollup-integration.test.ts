@@ -9,7 +9,6 @@ import {
   type SessionEntry,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { COST_ENTRY, CostLedger, type CostRecord } from "../src/orch/cost-ledger.ts";
 import type { ThreadView } from "../src/types.ts";
 import { createDialogDriver } from "./helpers/dialogDriver.ts";
 import { registry, withOfflineHarness } from "./helpers/integrationHarness.ts";
@@ -42,17 +41,6 @@ const toolUse = (cost: number, id: string, name: string, args: JsonObject): Assi
   stopReason: "toolUse",
   content: [{ type: "toolCall", id, name, arguments: args }],
 });
-const records = (manager: SessionManager): CostRecord[] =>
-  manager
-    .getEntries()
-    .flatMap((entry) =>
-      entry.type === "custom" && entry.customType === COST_ENTRY ? [entry.data as CostRecord] : [],
-    );
-const total = (manager: SessionManager): number => {
-  const ledger = new CostLedger();
-  ledger.restore(manager.getEntries());
-  return ledger.totalUsd;
-};
 const approximately = (actual: number | undefined, expected: number) => {
   assert.equal(typeof actual, "number");
   assert.ok(Math.abs(actual! - expected) < 1e-10, `expected ${expected}, received ${actual}`);
@@ -96,7 +84,7 @@ async function reap(session: AgentSession) {
 }
 
 test(
-  "cost rollup counts stop/resume deltas across reload/reopen and retains reaped costs",
+  "thread cost accumulates stop/resume deltas across reload, reopen and reaping",
   { timeout: 30000 },
   async () => {
     let rootCalls = 0;
@@ -126,11 +114,9 @@ test(
         const first = await tool<ThreadView>(session, "agent_wait", { path: "worker" });
         assert.equal(first.state, "completed");
         approximately(first.costUsd, 0.5);
-        approximately(total(root), 0.5);
         const identity = first.costId;
         assert.equal(typeof identity, "string");
         assert.equal(registry(root).threads[0].view.costId, identity);
-        assert.deepEqual(records(root), [{ threadId: identity, totalUsd: 0.5 }]);
         const rootResults = nativeToolResults(root.getEntries());
         assert.ok(rootResults.some((result) => result.toolName === "worker_spawn"));
         assert.ok(
@@ -154,37 +140,28 @@ test(
         await reloadSettings(session);
         await reloadSettings(session);
         await session.reload();
-        assert.equal(records(root).length, 1);
         const file = root.getSessionFile()!;
         await close(session);
         let restored = SessionManager.open(file);
         session = await open(restored);
-        approximately(total(restored), 0.5);
         assert.equal(
-          records(restored).length,
-          1,
-          "recovery must not append already accounted cost",
+          registry(restored).threads[0].view.costUsd,
+          0.5,
+          "reopening must not re-add already accounted cost",
         );
         await tool(session, "agent_steer", { path: "worker", message: "Second run" });
         const second = await tool<ThreadView>(session, "agent_wait", { path: "worker" });
         assert.equal(second.state, "completed");
         assert.equal(second.costId, identity);
         approximately(second.costUsd, 0.8);
-        approximately(total(restored), 0.8);
-        assert.deepEqual(
-          records(restored).map((record) => record.totalUsd),
-          [0.5, 0.8],
-        );
         await reloadSettings(session);
         await close(session);
         restored = SessionManager.open(file);
         session = await open(restored);
-        assert.equal(records(restored).length, 2);
-        approximately(total(restored), 0.8);
+        approximately(registry(restored).threads[0].view.costUsd, 0.8);
 
         await reap(session);
         assert.deepEqual(registry(restored).threads, []);
-        approximately(total(restored), 0.8); // Reaping must not remove historical spend.
         const replacement = await tool<ThreadView>(session, "worker_spawn", {
           description: "Test spawn",
           path: "worker",
@@ -195,8 +172,6 @@ test(
         assert.equal(replacement.state, "completed");
         assert.notEqual(replacement.costId, identity, "a reused path represents a new lifetime");
         approximately(replacement.costUsd, 0.2);
-        approximately(total(restored), 1);
-        assert.equal(records(restored).length, 3);
         assert.equal(rootCalls, 2, "foreground settlement does not wake the parent");
         assert.deepEqual(errors, []);
       },
@@ -205,7 +180,7 @@ test(
 );
 
 test(
-  "nested parent and child roll up only their own usage, excluding inherited history",
+  "nested parent and child count only their own usage, excluding inherited history",
   { timeout: 30000 },
   async () => {
     await withOfflineHarness(
@@ -237,7 +212,6 @@ test(
         await tool(session, "agent_wait", { path: "team/child" });
         approximately(child.costUsd, 0.2);
         assert.notEqual(child.costId, parent.costId);
-        approximately(total(root), 0.7);
         const inherited = SessionManager.open(child.sessionFile!)
           .getEntries()
           .filter((entry) => entry.type === "message" && entry.message.role === "assistant");
@@ -245,12 +219,6 @@ test(
         await tool(session, "agent_steer", { path: "team", message: "Parent follow-up" });
         const resumed = await tool<ThreadView>(session, "agent_wait", { path: "team" });
         approximately(resumed.costUsd, 0.8);
-        approximately(total(root), 1);
-        assert.deepEqual(records(root), [
-          { threadId: parent.costId, totalUsd: 0.5 },
-          { threadId: child.costId, totalUsd: 0.2 },
-          { threadId: parent.costId, totalUsd: 0.8 },
-        ]);
         assert.deepEqual(errors, []);
       },
     );
@@ -284,21 +252,16 @@ test(
         });
         await tool(session, "agent_wait", { path: "worker" });
         assert.equal(paused.state, "paused");
-        approximately(total(root), 0.5);
+        approximately(paused.costUsd, 0.5);
         await tool(session, "agent_steer", { path: "worker", message: "Try resumed task" });
         const failed = await tool<ThreadView>(session, "agent_wait", { path: "worker" });
         assert.equal(failed.state, "failed");
         approximately(failed.costUsd, 0.8);
-        approximately(total(root), 0.8);
         await tool(session, "agent_steer", { path: "worker", message: "Recover failed task" });
         const recovered = await tool<ThreadView>(session, "agent_wait", { path: "worker" });
         assert.equal(recovered.state, "completed");
         assert.equal(recovered.costId, paused.costId);
-        approximately(total(root), 1);
-        assert.deepEqual(
-          records(root).map((record) => record.totalUsd),
-          [0.5, 0.8, 1],
-        );
+        approximately(recovered.costUsd, 1);
         assert.deepEqual(errors, []);
       },
     );
@@ -306,7 +269,7 @@ test(
 );
 
 test(
-  "stopping a running subagent rolls up prior message spend only once before resume",
+  "stopping a running subagent settles prior message spend only once before resume",
   { timeout: 30000 },
   async () => {
     let release!: (message: AssistantMessage) => void;
@@ -344,7 +307,6 @@ test(
         });
         await pendingStarted;
         approximately(registry(root).threads[0].view.costUsd, 0.5);
-        assert.equal(total(root), 0, "running cost is not yet rolled up");
         const stopping = tool<ThreadView>(session, "agent_stop", { path: "worker" });
         // The offline provider is deliberately gated; complete its stream so cooperative abort can settle.
         release(answer(0, "Interrupted"));
@@ -353,19 +315,15 @@ test(
         await tool(session, "agent_wait", { path: "worker" });
         assert.equal(stopped.state, "stopped");
         approximately(stopped.costUsd, 0.5);
-        approximately(total(root), 0.5);
         await tool(session, "agent_stop", { path: "worker" });
-        assert.equal(records(root).length, 1, "repeated idle stop cannot recount earlier cost");
+        // Repeated idle stop cannot recount earlier cost.
+        const idle = await tool<ThreadView>(session, "agent_wait", { path: "worker" });
+        approximately(idle.costUsd, 0.5);
         await tool(session, "agent_steer", { path: "worker", message: "Continue after stop" });
         const resumed = await tool<ThreadView>(session, "agent_wait", { path: "worker" });
         assert.equal(resumed.state, "completed");
         assert.equal(resumed.costId, stopped.costId);
         approximately(resumed.costUsd, 0.8);
-        approximately(total(root), 0.8);
-        assert.deepEqual(
-          records(root).map((record) => record.totalUsd),
-          [0.5, 0.8],
-        );
         assert.deepEqual(errors, []);
       },
     );

@@ -65,7 +65,7 @@ const settings = (
   widgetMode: WidgetMode = "full",
   nerdFontIcons = false,
   finalRecap = false,
-) => ({ maxLevels, maxConcurrent, maxThreads, subagentMode, widgetMode, costDisplay: "pi-footer-status", costValue: "subagents", costIcon: "money", nerdFontIcons, loaderStyle: "circle", finalRecap, subagentExtensions: false, checklistIntegration: false, housekeepingEnabled: false, housekeepingModel: "" });
+) => ({ maxLevels, maxConcurrent, maxThreads, subagentMode, widgetMode, nerdFontIcons, loaderStyle: "circle", finalRecap, subagentExtensions: false, checklistIntegration: false, housekeepingEnabled: false, housekeepingModel: "" });
 
 const escape = (path: string) => new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
@@ -92,9 +92,6 @@ test("missing files return a fresh copy of defaults without diagnostics", (t) =>
       maxThreads: 64,
       subagentMode: "opportunistic",
       widgetMode: "full",
-      costDisplay: "pi-footer-status",
-      costValue: "subagents",
-      costIcon: "money",
       nerdFontIcons: false,
       loaderStyle: "circle",
       finalRecap: false,
@@ -326,9 +323,6 @@ test("save writes canonical 0600 files, creates owned directories, and reloads w
 
   const reordered = {
     widgetMode: "full",
-      costDisplay: "pi-footer-status",
-      costValue: "subagents",
-      costIcon: "money",
     nerdFontIcons: false,
     loaderStyle: "circle",
     finalRecap: false,
@@ -446,6 +440,24 @@ test("both widget modes save and load with trusted-project precedence", (t) => {
   }
 });
 
+test("removed cost-footer keys are ignored instead of failing the layer", (t) => {
+  const f = fixture(t);
+  writeJson(f.globalFile, {
+    maxLevels: 5,
+    costDisplay: "pi-footer-event",
+    costValue: "total",
+    costIcon: "wallet",
+  });
+  const result = load(f, false);
+  assert.deepEqual(result, { settings: { ...DEFAULTS, maxLevels: 5 }, diagnostics: [] });
+  // Saving drops the legacy keys; they no longer exist in the schema.
+  save(f, "user", result.settings);
+  const stored = JSON.parse(readFileSync(f.globalFile, "utf8"));
+  assert.equal(Object.hasOwn(stored, "costDisplay"), false);
+  assert.equal(Object.hasOwn(stored, "costValue"), false);
+  assert.equal(Object.hasOwn(stored, "costIcon"), false);
+});
+
 test("legacy settings without widgetMode keep full mode; invalid mode ignores its entire layer", (t) => {
   const f = fixture(t);
   writeJson(f.globalFile, { maxLevels: 5 });
@@ -494,59 +506,6 @@ test("Final Recap rejects non-booleans atomically when loading and saving", (t) 
   }
 });
 
-
-test("cost display defaults to a discoverable status key and validates all modes", (t) => {
-  const f = fixture(t);
-  assert.equal(load(f).settings.costDisplay, "pi-footer-status");
-  for (const costDisplay of ["pi-footer-event", "pi-footer-status", "pi-status"] as const) {
-    save(f, "user", { ...DEFAULTS, costDisplay });
-    assert.equal(load(f, false).settings.costDisplay, costDisplay);
-    save(f, "project", { ...DEFAULTS, costDisplay });
-    assert.equal(load(f).settings.costDisplay, costDisplay);
-  }
-  for (const invalid of ["auto", "", true, 0, null, [], {}]) {
-    writeJson(f.projectFile, { costDisplay: invalid });
-    const result = load(f);
-    assert.equal(result.settings.costDisplay, "pi-status");
-    assert.match(result.diagnostics[0], /costDisplay must be/);
-    rejects(() => save(f, "user", { ...DEFAULTS, costDisplay: invalid }), /costDisplay must be/);
-  }
-});
-
-
-test("cost value and icon settings round-trip independently with per-key precedence", (t) => {
-  const f = fixture(t);
-  assert.equal(load(f).settings.costValue, "subagents");
-  assert.equal(load(f).settings.costIcon, "money");
-  for (const costValue of ["subagents", "total"] as const) {
-    for (const costIcon of ["money", "coins", "wallet"] as const) {
-      for (const scope of ["user", "project"] as const) {
-        save(f, scope, { ...DEFAULTS, costValue, costIcon });
-        const loaded = load(f, scope === "project");
-        assert.equal(loaded.settings.costValue, costValue);
-        assert.equal(loaded.settings.costIcon, costIcon);
-        assert.deepEqual(loaded.diagnostics, []);
-      }
-    }
-  }
-  writeJson(f.globalFile, { costValue: "total", costIcon: "coins" });
-  writeJson(f.projectFile, { costIcon: "wallet" });
-  assert.equal(load(f).settings.costValue, "total");
-  assert.equal(load(f).settings.costIcon, "wallet");
-});
-
-test("invalid cost values and icons reject the entire layer and refuse saving", (t) => {
-  const f = fixture(t);
-  for (const key of ["costValue", "costIcon"] as const) {
-    for (const invalid of ["", "unknown", true, 0, null, [], {}]) {
-      writeJson(f.projectFile, { [key]: invalid, maxThreads: 1 });
-      const loaded = load(f);
-      assert.deepEqual(loaded.settings, DEFAULTS);
-      assert.match(loaded.diagnostics[0], new RegExp(key + " must be"));
-      rejects(() => save(f, "user", { ...DEFAULTS, [key]: invalid }), new RegExp(key + " must be"));
-    }
-  }
-});
 
 test("subagent extensions preserve legacy booleans and reject invalid scalar settings", (t) => {
   const f = fixture(t);
@@ -637,9 +596,9 @@ test("sparse saves inherit lower layers and do not snapshot unrelated values", (
   } });
   assert.deepEqual(JSON.parse(readFileSync(f.projectFile, "utf8")), { maxConcurrent: 7 });
   assert.equal(readFileSync(f.globalFile, "utf8"), globalBefore);
-  writeJson(f.globalFile, { maxLevels: 8, finalRecap: false, costValue: "total" });
+  writeJson(f.globalFile, { maxLevels: 8, finalRecap: false, widgetMode: "minimal" });
   assert.deepEqual(load(f).settings, {
-    ...DEFAULTS, maxLevels: 8, maxConcurrent: 7, costValue: "total",
+    ...DEFAULTS, maxLevels: 8, maxConcurrent: 7, widgetMode: "minimal",
   });
   saveManagerOverrides({ ...options, scope: "project", settings: load(f, false).settings });
   assert.equal(readFileSync(f.projectFile, "utf8"), "{}\n");
@@ -650,10 +609,10 @@ test("sparse saves inherit lower layers and do not snapshot unrelated values", (
 
 test("saving built-in defaults in Project explicitly overrides changed global values", (t) => {
   const f = fixture(t);
-  writeJson(f.globalFile, { maxLevels: 5, finalRecap: true, costIcon: "wallet" });
+  writeJson(f.globalFile, { maxLevels: 5, finalRecap: true, loaderStyle: "braille" });
   saveManagerOverrides({ ...f, includeProject: true, scope: "project", settings: DEFAULTS });
   assert.deepEqual(JSON.parse(readFileSync(f.projectFile, "utf8")), {
-    maxLevels: DEFAULTS.maxLevels, costIcon: DEFAULTS.costIcon, finalRecap: false,
+    maxLevels: DEFAULTS.maxLevels, loaderStyle: DEFAULTS.loaderStyle, finalRecap: false,
   });
   assert.deepEqual(load(f).settings, DEFAULTS);
   saveManagerOverrides({ ...f, includeProject: true, scope: "user", settings: DEFAULTS });
@@ -771,9 +730,9 @@ test("new persistence APIs reject nonregular files and invalid owned directories
 test("sparse Project saves ignore legacy keys but reject malformed global baselines", (t) => {
   const f = fixture(t);
   const options = { ...f, includeProject: true, scope: "project" as const };
-  writeJson(f.globalFile, { scopedModelFiltering: false, costValue: "total" });
+  writeJson(f.globalFile, { scopedModelFiltering: false, costDisplay: "pi-footer-event", widgetMode: "minimal" });
   saveManagerOverrides({ ...options, settings: {
-    ...DEFAULTS, costValue: "total", maxThreads: 90,
+    ...DEFAULTS, widgetMode: "minimal", maxThreads: 90,
   } });
   assert.deepEqual(JSON.parse(readFileSync(f.projectFile, "utf8")), { maxThreads: 90 });
   writeJson(f.globalFile, { maxLevels: 5, finalRecap: "invalid" });
@@ -829,15 +788,15 @@ test("snapshot comparison ignores property order while preserving known layer ch
   const f = fixture(t);
   const options = { ...f, includeProject: true };
   writeJson(f.globalFile, { maxLevels: 5, finalRecap: true });
-  writeJson(f.projectFile, { maxThreads: 90, costValue: "total" });
+  writeJson(f.projectFile, { maxThreads: 90, widgetMode: "minimal" });
   const expectedLayers = loadManagerSettingsLayers(options);
   writeFileSync(f.globalFile, ' { "finalRecap": true, "maxLevels": 5 }\n');
-  writeJson(f.projectFile, { costValue: "total", maxThreads: 90 });
+  writeJson(f.projectFile, { widgetMode: "minimal", maxThreads: 90 });
   saveManagerOverrides({ ...options, scope: "project", settings: {
     ...expectedLayers.settings, maxConcurrent: 7,
   }, expectedLayers });
   assert.deepEqual(JSON.parse(readFileSync(f.projectFile, "utf8")), {
-    maxConcurrent: 7, maxThreads: 90, costValue: "total",
+    maxConcurrent: 7, maxThreads: 90, widgetMode: "minimal",
   });
 });
 

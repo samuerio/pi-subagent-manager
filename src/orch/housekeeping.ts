@@ -309,7 +309,6 @@ export function resolveHousekeepingModel(
 export function createHousekeepingCompleter(
   getContext: () => ExtensionContext | undefined,
   getModelIdentity: () => string,
-  onUsageRecorded?: (ctx: ExtensionContext) => void,
 ): HousekeepingOptions["complete"] {
   return async (request, signal) => {
     const ctx = getContext();
@@ -335,12 +334,7 @@ export function createHousekeepingCompleter(
       )
       .result();
     // Account reported usage before checking whether this answer is usable or still current.
-    const entry = reportHousekeepingUsage(session, response);
-    try {
-      if (entry && getContext() === ctx) onUsageRecorded?.(ctx);
-    } catch {
-      /* A stale context or UI failure must not turn a successful summary into a failure. */
-    }
+    reportHousekeepingUsage(session, response);
     if (response.stopReason === "error" || response.stopReason === "aborted")
       throw new Error(response.errorMessage || `Housekeeping model ${response.stopReason}`);
     return response.content

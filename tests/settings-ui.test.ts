@@ -182,7 +182,7 @@ test("lab labels remain in the name column with saved dots between name and valu
     global: { nerdFontIcons: true },
     project: { nerdFontIcons: false },
   });
-  for (const id of ["costDisplay", "nerdFontIcons", "loaderStyle", "subagentExtensions", "checklistIntegration", "finalRecap"]) {
+  for (const id of ["nerdFontIcons", "loaderStyle", "subagentExtensions", "checklistIntegration", "finalRecap"]) {
     const row = result.menus[0]!.rows.find((row) => row.id === id)!;
     assert.match(row.label, /^\[lab\] /);
     assert.equal(row.renderLabel, undefined, "lab label is not stripped by a formatter");
@@ -660,23 +660,22 @@ test("saved legend keeps themed dots in a fixed bottom row, outside muted hints"
   }
 });
 
-test("Footer aggregate provenance covers all three settings while the submenu marks each independently", async (t) => {
-  const result = await run(t, ["costDisplay", "icon", "money", "back", "cancel"], {
+test("housekeeping aggregate provenance covers both settings while the submenu marks each independently", async (t) => {
+  const result = await run(t, ["housekeeping", "enabled", "back", "cancel"], {
     trusted: true,
-    global: { costDisplay: "pi-status", costValue: "total" },
-    project: { costDisplay: "pi-status", costIcon: "wallet" },
+    global: { housekeepingEnabled: true },
+    project: { housekeepingModel: "prov/model" },
   });
-  assert.equal(savedIndicators(result.menus[0]!, "costDisplay"),
+  assert.equal(savedIndicators(result.menus[0]!, "housekeeping"),
     "<accent>●</accent> <warning>●</warning>");
-  assert.equal(result.menus[0]!.rows.find((row) => row.id === "costDisplay")!.label, "[lab] Footer display");
-  assert.equal(savedIndicators(result.menus[1]!, "location"), "<accent>●</accent>  ");
-  assert.equal(savedIndicators(result.menus[1]!, "value"), "<accent>●</accent>  ");
-  assert.equal(savedIndicators(result.menus[1]!, "icon"), "  <warning>●</warning>");
+  assert.equal(result.menus[0]!.rows.find((row) => row.id === "housekeeping")!.label, "[lab] Housekeeping model");
+  assert.equal(savedIndicators(result.menus[1]!, "enabled"), "<accent>●</accent>  ");
+  assert.equal(savedIndicators(result.menus[1]!, "model"), "  <warning>●</warning>");
   assert.equal(savedIndicators(result.menus[1]!, "back"), "");
-  assert.equal(savedIndicators(result.menus[3]!, "icon"), "  <warning>●</warning>",
-    "changing the draft icon keeps the persisted dot");
+  assert.equal(savedIndicators(result.menus[2]!, "enabled"), "<accent>●</accent>  ",
+    "toggling the draft summary keeps the persisted dot");
   assert.equal(result.applied, 0);
-  assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { costDisplay: "pi-status", costIcon: "wallet" });
+  assert.deepEqual(JSON.parse(readFileSync(result.projectFile, "utf8")), { housekeepingModel: "prov/model" });
 });
 
 test("sparse Project saves inherit future global changes and Restore defaults removes the project file", async (t) => {
@@ -811,71 +810,6 @@ for (const width of [32, 80]) {
   });
 }
 
-
-test("Footer display opens a submenu and saves all three locations with integration IDs", async (t) => {
-  for (const mode of ["pi-footer-event", "pi-footer-status", "pi-status"] as const) {
-    const result = await run(t, ["costDisplay", "location", mode, "back", "save"]);
-    assert.equal(result.menus[0]!.rows.find((row) => row.id === "costDisplay")!.label, "[lab] Footer display");
-    assert.equal(result.menus[1]!.title, "[lab] Footer display");
-    assert.deepEqual(result.menus[1]!.rows.map((row) => row.id), ["location", "value", "icon", "back"]);
-    const locations = result.menus[2]!.rows;
-    assert.deepEqual(locations.map((row) => row.id), ["pi-status", "pi-footer-status", "pi-footer-event"]);
-    assert.equal(locations[1]!.value, "subagent_cost");
-    assert.equal(locations[2]!.value, "subagent_cost");
-    assert.match(locations[2]!.help!, /pi-footer:update-widget/);
-    assert.equal(result.loaded.settings.costDisplay, mode);
-    assert.equal(result.applied, 1);
-  }
-});
-
-test("Footer display saves both cost values independently of location", async (t) => {
-  for (const value of ["subagents", "total"] as const) {
-    const result = await run(t, ["costDisplay", "value", value, "back", "save"]);
-    assert.deepEqual(result.menus[2]!.rows.map((row) => row.id), ["subagents", "total"]);
-    assert.equal(result.loaded.settings.costValue, value);
-    assert.equal(result.loaded.settings.costDisplay, DEFAULT_MANAGER_SETTINGS.costDisplay);
-  }
-});
-
-test("Footer icon offers three previews from the draft Nerd Font setting", async (t) => {
-  for (const nerd of [false, true]) {
-    for (const icon of ["money", "coins", "wallet"] as const) {
-      const result = await run(t, [
-        ...(nerd ? ["nerdFontIcons"] : []),
-        "costDisplay", "icon", icon, "back", "save",
-      ]);
-      const picker = result.menus.find((menu) => menu.title.startsWith("Footer icon"))!;
-      assert.equal(picker.title, `Footer icon · ${nerd ? "Nerd Font" : "Emoji"}`);
-      assert.deepEqual(picker.rows.map((row) => row.id), ["money", "coins", "wallet"]);
-      assert.deepEqual(picker.rows.map((row) => row.value), nerd ? ["\uf0d6", "\uede8", "\uee1e"] : ["💵", "🪙", "👛"]);
-      assert.equal(result.loaded.settings.costIcon, icon);
-      assert.equal(result.loaded.settings.nerdFontIcons, nerd);
-    }
-  }
-});
-
-test("Footer edits remain draft-only, picker Esc preserves values, and defaults reset choices", async (t) => {
-  const cancelled = await run(t, ["costDisplay", "location", "pi-status", "value", "total", "icon", "wallet", "back", "cancel"]);
-  assert.equal(cancelled.applied, 0);
-  assert.equal(existsSync(cancelled.userFile), false);
-  const settings = { ...DEFAULT_MANAGER_SETTINGS, costDisplay: "pi-status", costValue: "total", costIcon: "wallet" } as const;
-  const escaped = await run(t, ["costDisplay", "location", undefined, "value", undefined, "icon", undefined, undefined, "save"], { settings });
-  assert.equal(escaped.loaded.settings.costDisplay, "pi-status");
-  assert.equal(escaped.loaded.settings.costValue, "total");
-  assert.equal(escaped.loaded.settings.costIcon, "wallet");
-  const restored = await run(t, ["defaults", "user", "cancel"], { settings });
-  assert.deepEqual(restored.loaded.settings, DEFAULT_MANAGER_SETTINGS);
-});
-
-test("Footer submenu and pickers fit narrow terminals and save to project scope", async (t) => {
-  for (const width of [20, 40, 60]) {
-    const result = await run(t, ["scope", "confirm", "costDisplay", "location", "pi-footer-event", "value", "total", "icon", "coins", "back", "save"], { width, trusted: true });
-    assert.ok(result.renders.every((lines) => lines.every((line) => visibleWidth(line) <= width)));
-    assert.equal(result.loaded.settings.costValue, "total");
-    assert.equal(result.loaded.settings.costIcon, "coins");
-    assert.equal(existsSync(result.projectFile), true);
-  }
-});
 
 test("[lab] Subagent extensions chooses files, saves, cancels and handles empty/narrow views", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "pi-extension-picker-"));

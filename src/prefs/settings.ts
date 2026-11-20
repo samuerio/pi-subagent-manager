@@ -20,15 +20,6 @@ export type SubagentMode = (typeof SUBAGENT_MODES)[number];
 export const WIDGET_MODES = ["full", "minimal"] as const;
 export type WidgetMode = (typeof WIDGET_MODES)[number];
 
-export const COST_DISPLAY_MODES = ["pi-footer-event", "pi-footer-status", "pi-status"] as const;
-export type CostDisplayMode = (typeof COST_DISPLAY_MODES)[number];
-
-export const COST_VALUES = ["subagents", "total"] as const;
-export type CostValue = (typeof COST_VALUES)[number];
-
-export const COST_ICONS = ["money", "coins", "wallet"] as const;
-export type CostIcon = (typeof COST_ICONS)[number];
-
 export const LOADER_STYLES = ["circle", "braille", "hourglass", "ascii", "ascii-star", "ascii-pulse"] as const;
 export type LoaderStyle = (typeof LOADER_STYLES)[number];
 
@@ -42,9 +33,6 @@ export function settingsValueEqual(a: unknown, b: unknown): boolean {
 export interface ManagerSettings {
   subagentMode: SubagentMode;
   widgetMode: WidgetMode;
-  costDisplay: CostDisplayMode;
-  costValue: CostValue;
-  costIcon: CostIcon;
   nerdFontIcons: boolean;
   loaderStyle: LoaderStyle;
   finalRecap: boolean;
@@ -65,9 +53,6 @@ export const DEFAULT_MANAGER_SETTINGS: ManagerSettings = {
   maxThreads: 64,
   subagentMode: "opportunistic",
   widgetMode: "full",
-  costDisplay: "pi-footer-status",
-  costValue: "subagents",
-  costIcon: "money",
   nerdFontIcons: false,
   loaderStyle: "circle",
   finalRecap: false,
@@ -83,14 +68,33 @@ export const isHousekeepingModel = (value: unknown): value is string =>
   typeof value === "string" && (value === "" || HOUSEKEEPING_MODEL.test(value));
 
 const KEYS = [
-  "maxLevels", "maxConcurrent", "maxThreads", "subagentMode", "widgetMode", "costDisplay", "costValue", "costIcon", "nerdFontIcons", "loaderStyle", "finalRecap", "subagentExtensions", "checklistIntegration", "housekeepingEnabled", "housekeepingModel",
+  "maxLevels",
+  "maxConcurrent",
+  "maxThreads",
+  "subagentMode",
+  "widgetMode",
+  "nerdFontIcons",
+  "loaderStyle",
+  "finalRecap",
+  "subagentExtensions",
+  "checklistIntegration",
+  "housekeepingEnabled",
+  "housekeepingModel",
 ] as const;
 /**
- * Keys removed when agent definitions moved into code. Existing settings files
- * may still carry them; they are ignored instead of failing the whole layer, so
- * an upgrade never bricks a user's settings.
+ * Keys removed from the schema (agent definitions moved into code; the cost
+ * footer feature was removed). Existing settings files may still carry them;
+ * they are ignored instead of failing the whole layer, so an upgrade never
+ * bricks a user's settings.
  */
-const LEGACY_KEYS = new Set(["toolFiltering", "modelSelection", "scopedModelFiltering"]);
+const LEGACY_KEYS = new Set([
+  "toolFiltering",
+  "modelSelection",
+  "scopedModelFiltering",
+  "costDisplay",
+  "costValue",
+  "costIcon",
+]);
 const MAX_LEVELS = 32;
 
 function errorCode(error: unknown): string | undefined {
@@ -132,9 +136,6 @@ function requirement(key: (typeof KEYS)[number]): string {
   if (key === "housekeepingModel") return "housekeepingModel must be empty or provider/model-id";
   if (key === "subagentMode") return "subagentMode must be off, opportunistic or orchestration";
   if (key === "widgetMode") return "widgetMode must be full or minimal";
-  if (key === "costDisplay") return "costDisplay must be pi-footer-event, pi-footer-status or pi-status";
-  if (key === "costValue") return "costValue must be subagents or total";
-  if (key === "costIcon") return "costIcon must be money, coins or wallet";
   if (key === "loaderStyle") return `loaderStyle must be one of: ${LOADER_STYLES.join(", ")}`;
   return `${key} must be a positive safe integer`;
 }
@@ -184,21 +185,6 @@ function parseSettings(content: string): Partial<ManagerSettings> {
     if (key === "widgetMode") {
       if (!WIDGET_MODES.includes(value as WidgetMode)) throw new Error(requirement(key));
       layer.widgetMode = value as WidgetMode;
-      continue;
-    }
-    if (key === "costDisplay") {
-      if (!COST_DISPLAY_MODES.includes(value as CostDisplayMode)) throw new Error(requirement(key));
-      layer.costDisplay = value as CostDisplayMode;
-      continue;
-    }
-    if (key === "costValue") {
-      if (!COST_VALUES.includes(value as CostValue)) throw new Error(requirement(key));
-      layer.costValue = value as CostValue;
-      continue;
-    }
-    if (key === "costIcon") {
-      if (!COST_ICONS.includes(value as CostIcon)) throw new Error(requirement(key));
-      layer.costIcon = value as CostIcon;
       continue;
     }
     if (key === "loaderStyle") {

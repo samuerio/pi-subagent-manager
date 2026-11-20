@@ -17,9 +17,6 @@ All keys are optional. Defaults:
   "widgetMode": "full",
   "nerdFontIcons": false,
   "loaderStyle": "circle",
-  "costDisplay": "pi-footer-status",
-  "costValue": "subagents",
-  "costIcon": "money",
   "finalRecap": false,
   "subagentExtensions": false,
   "checklistIntegration": false,
@@ -85,23 +82,9 @@ With **[lab] Nerd Font icons** off, the picker shows only Braille and ASCII pale
 
 The Labs preview shows every family's running animation frames and completed, paused, failed, and stopped icons, so you can compare all states before choosing. Starting uses the running animation. State indicators precede the role icon when role icons are enabled; the selected family also applies to the minimal widget's counts. In non-animated output, active agents use the family's first frame.
 
-## [lab] Cost display (`costDisplay`)
+## Cost accounting
 
-Open **[lab] Footer display** in `/agents settings` to choose the location, display value, and icon, then return and save. The stable ID/key is **`subagent_cost`**.
-
-| Value                        | Output                                                                                                                                                                                                                                                                                                         |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pi-footer-status` (default) | Publishes `💵 $0.0000` via Pi’s `setStatus` API. In `/footer`, add **Extension Status** and pick **`subagent_cost`** from the status-key selector.                                                                                                                                                             |
-| `pi-footer-event`            | Emits `pi-footer:update-widget` with `widgetId: "subagent_cost"`. Add **Pi Event Value**, enter **Widget ID** manually, and enable **Raw value only**. Event IDs do not appear in the status selector. Without an extension providing `/footer`, preserves the fallback footer, using the selected value/icon. |
-| `pi-status`                  | **Replace Pi status**: sets the manager’s Pi status to `Subagents: 💵 $0.0000` or `Total: 💵 $0.0000`; no pi-footer events or custom footer.                                                                                                                                                                   |
-
-Both status modes use the same public Pi status API: third-party footers may also display Pi status-only output. These modes never replace your footer. **Display value** (`costValue`) is independent of location: `subagents` (default) shows settled subagent-only USD; `total` adds the main session’s cost. In all modes, running subagent costs settle on completion, pause, stop, or failure. Values publish on session start/reload, immediately when a subagent starts (even at zero), after settlement/settings changes, and when main-session turns end. Switching locations clears the previous output; shutdown clears the published value.
-
-**Icon** (`costIcon`) offers `money` (default), `coins`, or `wallet`. With **[lab] Nerd Font icons** off, these appear as 💵, 🪙, or 👛. With it on, the picker and output use corresponding Nerd Font glyphs instead. The semantic choice survives toggling font mode.
-
-**Cost accounting.** Agent rows show estimated USD cost, including cache reads and writes, when the provider reports it. Running costs stay in those rows until the agent completes, pauses, stops, or fails; then only newly incurred costs are added to the total. Resuming, reloading, navigating branches, or reaping agents does not lose those totals, and nested agents' costs are counted once. These totals do not change Pi's native session statistics.
-
-See [Subagent dollar totals in pi-footer](pi-footer.md) for step-by-step setup and copy-paste widget configuration, status-key, and event snippets.
+Each agent row (spawn tool result, Agents widget, `/agents tree`) shows that agent's estimated USD cost, including cache reads and writes, when the provider reports it. Running costs accumulate live in the row; completion, pause, stop, or failure settles them. Resuming, reloading, navigating branches, or reaping agents does not lose a thread's settled total, and nested agents' costs are counted once. These totals do not change Pi's native session statistics.
 
 ## [lab] Subagent extensions (`subagentExtensions`)
 
@@ -172,7 +155,7 @@ Pick the model in the dialog's searchable picker. It lists **scoped models first
 
 **Throttling.** Each agent has at most one housekeeping call in flight and at most one every 10 seconds (activity during a call is coalesced into the next one, after a 1.5 s quiet period), with exponential backoff after failures. At most two calls run at once across all agents, each times out after 20 seconds, and a call is cancelled — and a late answer discarded — when the agent settles or restarts, the toggle or model changes, or the session changes.
 
-**Privacy and cost.** The housekeeping model sees each agent's task and recent activity text, including command and path snippets, so choose a provider you are comfortable sending that to. Calls use extra tokens at that model's price. Reported usage (including failed, cancelled, or discarded answers) is recorded in the main session as native `usage` entries, contributing to Pi's session totals and the **Total** cost display, but not the **Subagents** cost total. Extensions such as pi-stats display the actual response model as `provider/model (subagent-manager)`. These accounting entries contain no task, prompt, tool arguments, or summary text and do not enter the model's conversation context.
+**Privacy and cost.** The housekeeping model sees each agent's task and recent activity text, including command and path snippets, so choose a provider you are comfortable sending that to. Calls use extra tokens at that model's price. Reported usage (including failed, cancelled, or discarded answers) is recorded in the main session as native `usage` entries, contributing to Pi's session totals only; it never lands in any agent row's cost. Extensions such as pi-stats display the actual response model as `provider/model (subagent-manager)`. These accounting entries contain no task, prompt, tool arguments, or summary text and do not enter the model's conversation context.
 
 ## Model routing (`roles` in `modes.json`)
 
@@ -277,8 +260,8 @@ Colored dots before each setting describe saved changes: an **accent dot** means
 changed in Global relative to defaults; a **warning dot** means changed in Current
 Project relative to effective global settings. Both dots appear when both layers
 change that setting, even when the project restores the built-in default. Equal
-values are not changes. Unsaved edits do not change the dots. Footer display groups
-the provenance of its three settings; its submenu shows each separately.
+values are not changes. Unsaved edits do not change the dots. Housekeeping model
+groups the provenance of its two settings; its submenu shows each separately.
 
 The save scope is **Global** when no project settings file exists and **Current
 Project** when one exists. It is determined independently for each project; the old
